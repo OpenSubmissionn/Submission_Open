@@ -2845,6 +2845,21 @@
           );
           renderResult(data);
           replay();
+
+          // Fire-and-forget community-dashboard ping. We only send the
+          // referrer; geo is filled in server-side from Vercel edge headers
+          // so no IP or fingerprint is exposed client-side.
+          // Failures are silent — analytics must never disrupt the analyze flow.
+          try {
+            fetch('/api/track', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                referrer: document.referrer || '',
+              }),
+              keepalive: true,
+            }).catch(() => {});
+          } catch {}
         } catch (e) {
           // Keep the raw exception in the console for debugging, but show a
           // clean, user-friendly banner. TypeError from fetch ≈ network /

@@ -36,7 +36,7 @@ Works on mainnet and devnet · Plug your own RPC · `--json` and `--csv` ready f
 
 ## Try it
 
-Paste a signature into the [web app](https://opendev-tx-solana.vercel.app) — no install required.
+Paste a signature into the [web app](https://opendev-kappa.vercel.app/) — no install required.
 
 Or use the CLI:
 
