@@ -27,6 +27,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return Array.isArray(v) ? v[0] : v;
     };
 
+    // Fallback IP for the rare case Vercel's edge geo headers are missing
+    // (rate-limited, edge cache, region without geo data). x-forwarded-for
+    // is the canonical "real client IP" on Vercel.
+    const xff = h('x-forwarded-for');
+    const clientIp = xff ? xff.split(',')[0]?.trim() : undefined;
+
     await trackEvent(
       { event_type: 'tx_profiled', referrer },
       {
@@ -35,7 +41,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         region: h('x-vercel-ip-country-region'),
         latitude: h('x-vercel-ip-latitude'),
         longitude: h('x-vercel-ip-longitude'),
-      }
+      },
+      clientIp
     );
 
     res.status(200).json({ ok: true });

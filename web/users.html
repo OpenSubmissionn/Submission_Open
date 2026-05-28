@@ -150,39 +150,318 @@
 
     .nav-links {
       display: flex;
-      gap: 4px;
+      gap: 8px;
       align-items: center;
-      font-size: 13.5px;
-      font-weight: 500;
-      color: var(--fg-dim);
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--fg);
     }
 
-    .nav-links > a:not(.nav-cta) {
+    .nav-links > a:not(.nav-cta):not(.nav-web) {
       padding: 8px 12px;
       border-radius: 8px;
       transition: color 0.2s ease, background 0.2s ease;
     }
 
-    .nav-links > a:not(.nav-cta):hover {
+    .nav-links > a:not(.nav-cta):not(.nav-web):hover {
       color: var(--fg);
       background: rgba(30, 127, 255, 0.07);
     }
 
     .nav-cta {
-      padding: 8px 14px;
+      padding: 8px 16px;
+      margin-left: 4px;            /* extra breathing room from neighbouring CTAs */
       border-radius: 8px;
-      border: 1px solid rgba(96, 165, 250, 0.22);
-      background: rgba(30, 127, 255, 0.05);
+      border: 1px solid rgba(96, 165, 250, 0.45);
+      background: rgba(30, 127, 255, 0.12);
       color: var(--fg);
-      font-size: 13px;
-      font-weight: 500;
+      font-size: 14px;
+      font-weight: 600;
       transition: all 0.2s ease;
     }
 
     .nav-cta:hover {
-      background: rgba(30, 127, 255, 0.12);
-      border-color: rgba(109, 178, 255, 0.65);
+      background: rgba(30, 127, 255, 0.20);
+      border-color: rgba(109, 178, 255, 0.85);
       transform: translateY(-1px);
+      box-shadow: 0 6px 18px -8px rgba(30, 127, 255, 0.55);
+    }
+
+    /* ============================================
+       NAV — Web Version pill (mirrors landing.html)
+       ============================================ */
+    @keyframes navShine {
+      0%   { left: -75%; opacity: 0; }
+      15%  { opacity: 1; }
+      85%  { opacity: 1; }
+      100% { left: 130%; opacity: 0; }
+    }
+
+    .nav-web {
+      position: relative;
+      overflow: hidden;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      color: #07120c;
+      background: linear-gradient(135deg, var(--green-soft) 0%, var(--green) 60%, #0fcb7d 100%);
+      border: 1px solid rgba(20, 241, 149, 0.5);
+      box-shadow:
+        inset 0 0 0 1px rgba(255, 255, 255, 0.14),
+        0 6px 18px -8px rgba(20, 241, 149, 0.55);
+      transition:
+        transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
+        box-shadow 0.25s ease;
+      white-space: nowrap;
+    }
+
+    .nav-web::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -75%;
+      width: 55%;
+      height: 100%;
+      background: linear-gradient(
+        115deg,
+        transparent 0%,
+        rgba(255, 255, 255, 0.55) 50%,
+        transparent 100%
+      );
+      pointer-events: none;
+      transform: skewX(-14deg);
+      opacity: 0;
+    }
+
+    .nav-web:hover {
+      transform: translateY(-1px);
+      box-shadow:
+        inset 0 0 0 1px rgba(255, 255, 255, 0.22),
+        0 10px 28px -8px rgba(20, 241, 149, 0.8),
+        0 0 0 3px rgba(20, 241, 149, 0.22);
+    }
+
+    .nav-web:hover::after { animation: navShine 0.9s cubic-bezier(0.2, 0.7, 0.2, 1); }
+
+    .nav-web .live-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #07120c;
+      box-shadow: 0 0 0 2px rgba(7, 18, 12, 0.35);
+      animation: navWebDot 1.4s ease-in-out infinite;
+    }
+
+    .nav-web .arrow { transition: transform 0.18s ease; }
+    .nav-web:hover .arrow { transform: translateX(2px); }
+
+    @keyframes navWebDot {
+      0%, 100% { opacity: 0.55; }
+      50%      { opacity: 1; }
+    }
+
+    /* "Community" link gets an active marker since this is the current page */
+    .nav-links a.nav-active {
+      color: var(--fg) !important;
+      background: rgba(30, 127, 255, 0.10);
+    }
+
+    /* ============================================
+       FOOTER (mirrors landing.html)
+       ============================================ */
+    footer {
+      border-top: 1px solid rgba(96, 165, 250, 0.35);
+      padding: 60px 0 24px;
+      margin-top: 60px;
+      position: relative;
+      z-index: 1;
+      background:
+        linear-gradient(180deg, rgba(37, 99, 235, 0.18) 0%, rgba(37, 99, 235, 0.08) 100%),
+        rgba(7, 7, 13, 0.72);
+      box-shadow: inset 0 1px 0 rgba(96, 165, 250, 0.12);
+      backdrop-filter: blur(20px) saturate(140%);
+      -webkit-backdrop-filter: blur(20px) saturate(140%);
+      color: var(--fg);
+    }
+
+    .footer-grid {
+      display: grid;
+      grid-template-columns: 1.6fr repeat(4, 1fr);
+      gap: 40px;
+      padding-bottom: 36px;
+    }
+
+    .footer-brand .logo-mark {
+      width: 110px;
+      height: auto;
+      margin-bottom: 16px;
+      filter: drop-shadow(0 0 18px rgba(96, 165, 250, 0.28));
+    }
+
+    .footer-tagline {
+      color: var(--fg-dim);
+      font-size: 14px;
+      line-height: 1.55;
+      max-width: 280px;
+      margin: 0 0 16px;
+    }
+
+    .footer-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(20, 241, 149, 0.3);
+      background: rgba(20, 241, 149, 0.08);
+      color: var(--green);
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 11px;
+      letter-spacing: 0.06em;
+    }
+
+    .footer-status .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 8px currentColor;
+      animation: footer-pulse 1.8s ease-out infinite;
+    }
+
+    @keyframes footer-pulse {
+      0%   { box-shadow: 0 0 0 0 currentColor; }
+      70%  { box-shadow: 0 0 0 6px transparent; }
+      100% { box-shadow: 0 0 0 0 transparent; }
+    }
+
+    .footer-col-title {
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: lowercase;
+      color: var(--blue-soft);
+      margin: 0 0 18px;
+    }
+
+    .footer-col-title::before {
+      content: '// ';
+      color: var(--fg-mute);
+      font-weight: 400;
+    }
+
+    .footer-col-links {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .footer-col-links a {
+      position: relative;
+      display: inline-flex;
+      align-items: baseline;
+      color: var(--fg);
+      font-size: 14px;
+      text-decoration: none;
+      transition: color 0.15s, transform 0.15s;
+    }
+
+    .footer-col-links a::before {
+      content: '>';
+      display: inline-block;
+      width: 0;
+      overflow: hidden;
+      color: var(--blue-soft);
+      opacity: 0;
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      transition: width 0.18s ease, opacity 0.18s ease, margin-right 0.18s ease;
+    }
+
+    .footer-col-links a:hover { color: var(--blue-soft); }
+    .footer-col-links a:hover::before {
+      width: 10px;
+      opacity: 1;
+      margin-right: 4px;
+    }
+
+    .footer-bottom {
+      border-top: 1px solid rgba(96, 165, 250, 0.18);
+      padding-top: 22px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+      font-size: 13px;
+      color: var(--fg-mute);
+    }
+
+    .footer-bottom .accent { color: var(--fg-dim); }
+
+    .footer-prompt {
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 13px;
+      color: var(--fg-dim);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
+    }
+
+    .footer-prompt .p-path  { color: var(--blue-soft); }
+    .footer-prompt .p-sigil { color: var(--green); margin: 0 8px 0 4px; }
+    .footer-prompt .p-cmd   { color: var(--fg); }
+    .footer-prompt .p-arg   { color: var(--fg-mute); margin-left: 6px; }
+
+    .footer-cursor {
+      display: inline-block;
+      width: 7px;
+      height: 13px;
+      vertical-align: -2px;
+      background: var(--blue-soft);
+      margin-left: 4px;
+      animation: footer-blink 1.1s steps(2, start) infinite;
+    }
+
+    @keyframes footer-blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
+    }
+
+    .footer-meta-right {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .footer-version {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(96, 165, 250, 0.28);
+      background: rgba(37, 99, 235, 0.10);
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      color: var(--blue-soft);
+    }
+
+    @media (max-width: 900px) {
+      .footer-grid { grid-template-columns: 1fr 1fr; gap: 32px; }
+    }
+    @media (max-width: 540px) {
+      .footer-grid { grid-template-columns: 1fr; gap: 28px; }
     }
 
     /* ============================================
@@ -409,63 +688,56 @@
     .map-wrap {
       position: relative;
       width: 100%;
-      aspect-ratio: 2 / 1;
-      background: radial-gradient(ellipse 70% 60% at 50% 45%, rgba(30, 127, 255, 0.06), transparent 70%);
+      /* Cinematic-wide ratio keeps the panel feeling like a dashboard card
+         and not a giant box of empty space — the globe still fits because
+         we move the camera closer than the default below. */
+      aspect-ratio: 5 / 2;
+      min-height: 320px;
+      max-height: 520px;
+      background: radial-gradient(ellipse 70% 60% at 50% 50%, rgba(30, 127, 255, 0.08), transparent 70%);
       border-radius: 10px;
       overflow: hidden;
     }
 
-    .map-svg {
+    /* WebGL globe container — globe.gl injects a canvas inside */
+    #globe {
       width: 100%;
       height: 100%;
       display: block;
+      /* The drag-to-rotate gesture lives only on the canvas; surrounding
+         padding gets the default cursor so it doesn't feel "grabby". */
+      cursor: grab;
     }
+    #globe:active { cursor: grabbing; }
+    #globe canvas { display: block; outline: none; }
+    /* When there's no data, we hide the globe entirely and let the empty
+       state own the panel — no point rotating an empty earth. */
+    #globe[hidden] { display: none; }
 
-    .map-country {
-      fill: rgba(255, 255, 255, 0.03);
-      stroke: rgba(255, 255, 255, 0.08);
-      stroke-width: 0.6;
-      transition: fill 0.2s ease;
+    /* globe.gl's built-in HTML tooltip — match the dashboard look */
+    .globe-tooltip {
+      background: rgba(7, 7, 13, 0.95);
+      backdrop-filter: blur(8px);
+      border: 1px solid var(--border-bright);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 12.5px;
+      color: var(--fg);
+      box-shadow: 0 8px 32px -8px rgba(0, 0, 0, 0.6);
+      pointer-events: none;
+      min-width: 150px;
     }
-
-    .map-country.active {
-      fill: rgba(30, 127, 255, 0.10);
-      stroke: rgba(96, 165, 250, 0.35);
+    .globe-tooltip .city { font-weight: 700; margin-bottom: 2px; }
+    .globe-tooltip .country { color: var(--fg-dim); font-size: 11px; margin-bottom: 8px; }
+    .globe-tooltip .row {
+      display: flex;
+      justify-content: space-between;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11.5px;
+      color: var(--fg-dim);
     }
-
-    .map-country:hover {
-      fill: rgba(30, 127, 255, 0.18);
-    }
-
-    .map-dot-pulse {
-      fill: var(--blue-bright);
-      opacity: 0.35;
-      animation: dotPulse 2.4s ease-out infinite;
-      transform-origin: center;
-      transform-box: fill-box;
-    }
-
-    @keyframes dotPulse {
-      0%   { transform: scale(1);   opacity: 0.55; }
-      80%  { transform: scale(3.5); opacity: 0;    }
-      100% { transform: scale(3.5); opacity: 0;    }
-    }
-
-    .map-dot {
-      fill: var(--blue-bright);
-      stroke: rgba(255, 255, 255, 0.95);
-      stroke-width: 0.8;
-      filter: drop-shadow(0 0 6px rgba(59, 158, 255, 0.55));
-      cursor: pointer;
-      transition: fill 0.2s ease;
-    }
-
-    .map-dot.green { fill: var(--green); filter: drop-shadow(0 0 6px rgba(20, 241, 149, 0.55)); }
-    .map-dot.green + .map-dot-pulse { fill: var(--green); }
-    .map-dot.purple { fill: var(--purple-soft); filter: drop-shadow(0 0 6px rgba(176, 124, 255, 0.55)); }
-    .map-dot.purple + .map-dot-pulse { fill: var(--purple-soft); }
-    .map-dot.orange { fill: var(--orange); filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.55)); }
-    .map-dot.orange + .map-dot-pulse { fill: var(--orange); }
+    .globe-tooltip .row strong { color: var(--fg); font-weight: 600; }
 
     .map-legend {
       position: absolute;
@@ -841,6 +1113,10 @@
       text-align: center;
       padding: 20px;
     }
+    /* HTML `hidden` attribute has lower CSS specificity than the .map-empty
+       class, so without this override the empty state stays visible (in
+       display:flex) even when JS sets `hidden=true`. */
+    .map-empty[hidden] { display: none; }
     .map-empty .big { font-size: 16px; font-weight: 700; color: var(--fg); }
     .map-empty .sub { font-size: 13px; color: var(--fg-dim); max-width: 340px; }
     .map-empty code {
@@ -856,6 +1132,21 @@
       font-size: 13px;
       color: var(--fg-mute);
     }
+
+    /* Honest-data footnote shown right below the stat cards when we have a
+       material adjustment to report (currently: launch-day spike filter). */
+    .data-note {
+      margin: 0 0 22px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.015);
+      font-size: 12.5px;
+      color: var(--fg-dim);
+      line-height: 1.5;
+    }
+    .data-note strong { color: var(--fg); font-weight: 600; }
+    .data-note .mono { background: rgba(255, 255, 255, 0.04); padding: 1px 5px; border-radius: 4px; font-size: 11.5px; }
 
     /* "Source" rows reuse .country-row but swap the flag column for a
        letter chip — same grid, same bar mechanic. */
@@ -873,6 +1164,43 @@
       color: var(--fg);
       font-family: 'JetBrains Mono', monospace;
       text-transform: uppercase;
+    }
+
+    /* Version rows widen the left chip column so semver labels ("0.5.0") fit
+       without truncation. Grid columns slightly different from .country-row. */
+    .version-row {
+      display: grid;
+      grid-template-columns: auto 1fr 70px;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .version-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      height: 22px;
+      padding: 0 8px;
+      border-radius: 6px;
+      background: rgba(20, 241, 149, 0.08);
+      border: 1px solid rgba(20, 241, 149, 0.25);
+      color: var(--green);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      white-space: nowrap;
+    }
+
+    .version-chip.lead {
+      background: rgba(30, 127, 255, 0.10);
+      border-color: rgba(96, 165, 250, 0.40);
+      color: var(--blue-bright);
+    }
+
+    .version-row .country-bar-fill {
+      /* Override the country-list gradient to a CLI-tone single colour */
+      background: linear-gradient(90deg, var(--green), var(--blue-bright));
     }
 
     /* Tooltip variation — original had 4 rows, we only need 3 now */
@@ -899,7 +1227,7 @@
 <body>
   <div class="bg" aria-hidden="true"></div>
 
-  <!-- nav -->
+  <!-- nav (mirrors landing.html) -->
   <nav>
     <div class="nav-inner">
       <a href="landing.html" class="logo">
@@ -907,8 +1235,13 @@
       </a>
       <div class="nav-links">
         <a href="landing.html#versions">Versions</a>
+        <a href="landing.html#modes">How it works</a>
         <a href="landing.html#features">Features</a>
-        <a href="web.html">Web Version</a>
+        <a href="web.html" class="nav-web" aria-label="Open the web version">
+          <span class="live-dot" aria-hidden="true"></span>
+          Web Version
+          <span class="arrow" aria-hidden="true">→</span>
+        </a>
         <a
           href="https://github.com/OpenSubmissionn/Open_DevTool"
           target="_blank"
@@ -921,11 +1254,11 @@
 
   <!-- page head -->
   <header class="container page-head reveal" data-d="1">
-    <span class="eyebrow"><span class="dot"></span>LIVE · UPDATED IN REAL TIME</span>
+    <span class="eyebrow"><span class="dot"></span>LIVE · NPM REGISTRY + WEB TRACKER</span>
     <h1>Devs <span class="accent">around the world</span> using OPEN</h1>
     <p class="sub">
-      How many of you are profiling Solana transactions with us, where you're profiling from,
-      and how the community is growing across the CLI and the web debugger.
+      Real numbers pulled from npm (CLI downloads, per-version split) and our own
+      edge tracker (web debugger sessions, geo, referrers). Refreshes every minute.
     </p>
   </header>
 
@@ -944,8 +1277,8 @@
         <div class="stat-icon">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
         </div>
-        <svg class="stat-spark" viewBox="0 0 80 32" preserveAspectRatio="none" aria-hidden="true">
-          <polyline points="0,26 10,22 20,24 30,18 40,16 50,12 60,10 70,7 80,4" fill="none" stroke="var(--blue-bright)" stroke-width="1.5"/>
+        <svg class="stat-spark" viewBox="0 0 80 32" preserveAspectRatio="none" aria-hidden="true" data-spark="combined">
+          <polyline points="" fill="none" stroke="var(--blue-bright)" stroke-width="1.5"/>
         </svg>
         <div class="stat-label">Total sessions</div>
         <div class="stat-value" data-stat="totalSessions">—</div>
@@ -956,8 +1289,8 @@
         <div class="stat-icon">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
         </div>
-        <svg class="stat-spark" viewBox="0 0 80 32" preserveAspectRatio="none" aria-hidden="true">
-          <polyline points="0,28 10,25 20,20 30,22 40,16 50,18 60,12 70,9 80,5" fill="none" stroke="var(--green)" stroke-width="1.5"/>
+        <svg class="stat-spark" viewBox="0 0 80 32" preserveAspectRatio="none" aria-hidden="true" data-spark="cli">
+          <polyline points="" fill="none" stroke="var(--green)" stroke-width="1.5"/>
         </svg>
         <div class="stat-label">CLI downloads</div>
         <div class="stat-value" data-stat="cliDownloads">—</div>
@@ -968,8 +1301,8 @@
         <div class="stat-icon">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
         </div>
-        <svg class="stat-spark" viewBox="0 0 80 32" preserveAspectRatio="none" aria-hidden="true">
-          <polyline points="0,22 10,18 20,21 30,15 40,17 50,11 60,8 70,10 80,6" fill="none" stroke="var(--purple-soft)" stroke-width="1.5"/>
+        <svg class="stat-spark" viewBox="0 0 80 32" preserveAspectRatio="none" aria-hidden="true" data-spark="web">
+          <polyline points="" fill="none" stroke="var(--purple-soft)" stroke-width="1.5"/>
         </svg>
         <div class="stat-label">Web sessions (30d)</div>
         <div class="stat-value" data-stat="webEvents30d">—</div>
@@ -980,14 +1313,17 @@
         <div class="stat-icon">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
         </div>
-        <svg class="stat-spark" viewBox="0 0 80 32" preserveAspectRatio="none" aria-hidden="true">
-          <polyline points="0,30 10,28 20,26 30,22 40,20 50,16 60,14 70,11 80,8" fill="none" stroke="var(--orange)" stroke-width="1.5"/>
+        <svg class="stat-spark" viewBox="0 0 80 32" preserveAspectRatio="none" aria-hidden="true" data-spark="web">
+          <polyline points="" fill="none" stroke="var(--orange)" stroke-width="1.5"/>
         </svg>
         <div class="stat-label">Active countries</div>
         <div class="stat-value" data-stat="uniqueCountries">—</div>
         <div class="stat-delta"><span class="sub">last 30 days</span></div>
       </div>
     </section>
+
+    <!-- transparency note: surfaces the launch-day filter when applicable -->
+    <p id="dataNote" class="data-note reveal" data-d="2" hidden></p>
 
     <!-- WORLD MAP -->
     <section class="panel map-panel reveal" data-d="3">
@@ -1000,10 +1336,7 @@
       </div>
 
       <div class="map-wrap">
-        <svg class="map-svg" viewBox="0 0 960 480" preserveAspectRatio="xMidYMid meet">
-          <g id="map-countries"></g>
-          <g id="map-dots"></g>
-        </svg>
+        <div id="globe"></div>
 
         <div id="mapEmpty" class="map-empty" hidden>
           <div class="big">No web sessions yet</div>
@@ -1014,12 +1347,7 @@
           <span><span class="swatch" style="background: var(--blue-bright)"></span>Low</span>
           <span><span class="swatch" style="background: var(--purple-soft)"></span>Medium</span>
           <span><span class="swatch" style="background: var(--green)"></span>High</span>
-        </div>
-
-        <div class="map-tooltip" id="mapTooltip">
-          <div class="city">—</div>
-          <div class="country">—</div>
-          <div class="row"><span>Sessions</span><strong>—</strong></div>
+          <span style="color: var(--fg-mute); margin-left: 6px;">drag to rotate</span>
         </div>
       </div>
     </section>
@@ -1043,14 +1371,11 @@
       <div class="panel reveal" data-d="4">
         <div class="panel-head">
           <div>
-            <h2 class="title">Platform mix</h2>
-            <p class="subtitle">CLI vs web — last 30 days.</p>
+            <h2 class="title">CLI versions</h2>
+            <p class="subtitle">Which build people are running. npm, last week.</p>
           </div>
         </div>
-        <div class="platform-flex">
-          <svg class="donut" id="platformDonut" viewBox="0 0 100 100"></svg>
-          <div class="platform-list" id="platformList"></div>
-        </div>
+        <div class="country-list" id="versionList"></div>
       </div>
     </section>
 
@@ -1088,12 +1413,74 @@
       </div>
     </section>
 
-    <div style="height: 80px;"></div>
+    <div style="height: 40px;"></div>
   </main>
 
-  <!-- D3 + topojson via CDN (just for the map) -->
-  <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
+  <!-- footer (mirrors landing.html for visual consistency) -->
+  <footer>
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <img class="logo-mark" src="open-wordmark.svg" alt="OPEN" />
+          <p class="footer-tagline">
+            Solana transaction analyzer for developers. See what your transaction actually did.
+          </p>
+          <span class="footer-status" title="backend status">
+            <span class="dot"></span>
+            <span>online · mainnet</span>
+          </span>
+        </div>
+
+        <div>
+          <h4 class="footer-col-title">Product</h4>
+          <ul class="footer-col-links">
+            <li><a href="landing.html#features">Features</a></li>
+            <li><a href="landing.html#modes">Modes</a></li>
+            <li><a href="landing.html#versions">Versions</a></li>
+            <li><a href="web.html">Try web demo</a></li>
+          </ul>
+        </div>
+
+        <div>
+          <h4 class="footer-col-title">Resources</h4>
+          <ul class="footer-col-links">
+            <li><a href="https://github.com/OpenSubmissionn/Open_DevTool" target="_blank" rel="noopener">GitHub</a></li>
+            <li><a href="https://open-dbe26606.mintlify.app/" target="_blank" rel="noopener">Documentation</a></li>
+            <li><a href="https://github.com/OpenSubmissionn/Open_DevTool/tree/main/cli" target="_blank" rel="noopener">CLI</a></li>
+            <li><a href="https://github.com/OpenSubmissionn/Open_DevTool/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Changelog</a></li>
+          </ul>
+        </div>
+
+        <div>
+          <h4 class="footer-col-title">Community</h4>
+          <ul class="footer-col-links">
+            <li><a href="users.html">Dashboard</a></li>
+            <li><a href="https://x.com/OpenDevT" target="_blank" rel="noopener" aria-label="OPEN on X (Twitter)">@OpenDevT</a></li>
+            <li><a href="https://github.com/OpenSubmissionn/Open_DevTool/issues" target="_blank" rel="noopener">Issues</a></li>
+          </ul>
+        </div>
+
+        <div>
+          <h4 class="footer-col-title">Legal</h4>
+          <ul class="footer-col-links">
+            <li><a href="https://github.com/OpenSubmissionn/Open_DevTool/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="footer-bottom">
+        <code class="footer-prompt" aria-hidden="true"
+          ><span class="p-path">~/open</span><span class="p-sigil">$</span><span class="p-cmd">npm install -g opendevtool</span><span class="footer-cursor"></span></code>
+        <span class="footer-meta-right">
+          <span class="footer-version">v0.5.0 · mainnet-beta</span>
+          <span class="accent">© 2026 OPEN · MIT</span>
+        </span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- globe.gl bundles three.js + three-globe; ~200KB gzip, ships from unpkg -->
+  <script src="https://unpkg.com/globe.gl@2"></script>
 
   <script>
     // ============================================
@@ -1167,130 +1554,145 @@
         el.classList.toggle('down', d.pct < 0);
         el.innerHTML = `${arrow} ${pct}%<span class="sub">${d.sub}</span>`;
       }
+
+      // Live sparklines — replace the placeholder polylines on each card
+      // with a 30-day series sourced from real data.
+      const cli = (stats.growth?.cli || []).map((p) => p.count);
+      const web = (stats.growth?.web || []).map((p) => p.count);
+      const combined = cli.map((v, i) => v + (web[i] ?? 0));
+      const series = { cli, web, combined };
+
+      document.querySelectorAll('.stat-spark[data-spark]').forEach((svg) => {
+        const key = svg.dataset.spark;
+        renderSparkline(svg, series[key] ?? []);
+      });
     }
 
-    // ─── World map (D3 + Natural Earth) ───────────────────────
-    const MAP_W = 960, MAP_H = 480;
-    const countriesG = d3.select('#map-countries');
-    const dotsG = d3.select('#map-dots');
-    const tooltip = document.getElementById('mapTooltip');
+    // Tiny sparkline renderer — maps a series of values into a 0..80 × 0..32
+    // polyline. Pads short series with the last value so the line still draws.
+    function renderSparkline(svg, values) {
+      const line = svg.querySelector('polyline');
+      if (!line) return;
+      if (!values || values.length === 0) {
+        line.setAttribute('points', '');
+        return;
+      }
+      const W = 80, H = 32;
+      const max = Math.max(1, ...values);
+      const min = Math.min(...values);
+      const range = Math.max(1, max - min);
+      const step = W / Math.max(1, values.length - 1);
+      const points = values
+        .map((v, i) => `${(i * step).toFixed(1)},${(H - ((v - min) / range) * (H - 4) - 2).toFixed(1)}`)
+        .join(' ');
+      line.setAttribute('points', points);
+    }
+
+    // ─── 3D Globe (globe.gl → three.js → WebGL) ───────────────
+    // We render an interactive sphere with city dots floating above the
+    // surface. Each dot's altitude + radius is tied to the session count,
+    // and we tier colour (blue/purple/green) by quantile so a single
+    // hotspot doesn't make every other city look identical.
+
     const mapEmpty = document.getElementById('mapEmpty');
+    const globeEl = document.getElementById('globe');
+    let _globe = null;
 
-    const projection = d3.geoNaturalEarth1()
-      .scale(170)
-      .translate([MAP_W / 2, MAP_H / 2 + 12]);
+    function ensureGlobe() {
+      if (_globe) return _globe;
+      // earth-blue-marble has visible continents/oceans without the noise of
+      // city lights — reads cleaner on a dashboard than earth-night did.
+      _globe = Globe({ animateIn: true })
+        .globeImageUrl('//unpkg.com/three-globe/example/img/earth-blue-marble.jpg')
+        .bumpImageUrl('//unpkg.com/three-globe/example/img/earth-topology.png')
+        .backgroundColor('rgba(0, 0, 0, 0)')
+        .atmosphereColor('#3b9eff')
+        .atmosphereAltitude(0.18)
+        .showGlobe(true)
+        .showAtmosphere(true)
+        (globeEl);
 
-    const geoPath = d3.geoPath(projection);
+      // Pull the camera in close so the globe fills the panel — the default
+      // ~2.5 altitude leaves big empty margins on a wide container.
+      _globe.pointOfView({ lat: 20, lng: -20, altitude: 1.9 }, 0);
 
-    let _worldFeatures = null; // cached topojson
+      const controls = _globe.controls();
+      controls.autoRotate = true;
+      controls.autoRotateSpeed = 0.35;
+      // Zoom OFF so wheel events bubble up to the page (otherwise the user
+      // can't scroll past the globe). Pan also off — drag should only rotate.
+      controls.enableZoom = false;
+      controls.enablePan = false;
 
-    async function ensureWorldMap() {
-      if (_worldFeatures) return _worldFeatures;
-      try {
-        const r = await fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json');
-        const world = await r.json();
-        _worldFeatures = topojson.feature(world, world.objects.countries).features;
-        return _worldFeatures;
-      } catch (e) {
-        console.warn('[map] topojson load failed:', e);
-        return null;
-      }
+      // Resize on window changes — the container has aspect-ratio so its
+      // height is computed; we just nudge the renderer to re-read its size.
+      const ro = new ResizeObserver(() => {
+        _globe.width(globeEl.clientWidth).height(globeEl.clientHeight);
+      });
+      ro.observe(globeEl);
+
+      return _globe;
     }
 
-    async function renderMap(cities, topCountries) {
-      const features = await ensureWorldMap();
-      const activeNames = new Set([
-        ...topCountries.map((c) => (c.name || '').toLowerCase()),
-        ...cities.map((c) => (c.country || '').toLowerCase()),
-      ]);
+    function renderMap(cities) {
+      const hasData = cities.length > 0;
+      // Switch the panel between "globe with dots" and "clean empty state".
+      // We never show both — the overlay-on-top-of-spinning-earth looked busy.
+      mapEmpty.hidden = hasData;
+      globeEl.hidden = !hasData;
+      if (!hasData) return;
 
-      // The TopoJSON file uses common names; a few diverge enough from
-      // what Vercel reports that we hand-map them. Keep this list lean.
-      const NAME_ALIASES = {
-        'united states of america': 'united states',
-        'usa': 'united states',
-        'russian federation': 'russia',
-        'korea, republic of': 'south korea',
-        'republic of korea': 'south korea',
-      };
-      const norm = (s) => NAME_ALIASES[s.toLowerCase()] ?? s.toLowerCase();
+      const globe = ensureGlobe();
 
-      if (features) {
-        countriesG.selectAll('path')
-          .data(features)
-          .join('path')
-          .attr('class', (d) =>
-            activeNames.has(norm(d.properties.name || '')) ? 'map-country active' : 'map-country'
-          )
-          .attr('d', geoPath);
-      }
-
-      // Toggle empty state — show only when we have a map but no dots.
-      mapEmpty.hidden = cities.length > 0;
-
-      // Tier dots into low/medium/high by quantile of the count distribution.
-      // Pure-volume sizing on top so a city with 200 sessions still reads
-      // bigger than one with 5 even inside the same tier.
+      // Tier cities by quantile of count so colour scaling stays meaningful
+      // when one hotspot dominates. Empty array → all-zero tiers.
       const counts = cities.map((c) => c.count).sort((a, b) => a - b);
       const q = (p) => counts[Math.floor((counts.length - 1) * p)] ?? 0;
       const lowMax = q(0.33);
       const midMax = q(0.66);
-      const tierClass = (n) => (n <= lowMax ? '' : n <= midMax ? 'purple' : 'green');
+      const TIER_COLORS = {
+        low:  '#3b9eff', // blue-bright
+        mid:  '#b07cff', // purple-soft
+        high: '#14f195', // green
+      };
+      const tierOf = (n) => (n <= lowMax ? 'low' : n <= midMax ? 'mid' : 'high');
+      const colorFor = (n) => TIER_COLORS[tierOf(n)];
 
-      const projected = cities
-        .map((c) => {
-          const xy = projection([c.lng, c.lat]);
-          return xy ? { ...c, x: xy[0], y: xy[1], tier: tierClass(c.count) } : null;
-        })
-        .filter(Boolean);
+      // Tooltip HTML — globe.gl renders this on hover, positioned for us.
+      const labelFor = (d) => `
+        <div class="globe-tooltip">
+          <div class="city">${flagFromIso(d.countryCode)} ${escapeHtml(d.city)}</div>
+          <div class="country">${escapeHtml(d.country || '')}</div>
+          <div class="row"><span>Sessions</span><strong>${d.count.toLocaleString()}</strong></div>
+        </div>
+      `;
 
-      const groups = dotsG.selectAll('g.dot-group').data(projected, (d) => `${d.countryCode}|${d.city}`);
-      groups.exit().remove();
-
-      const enter = groups.enter()
-        .append('g')
-        .attr('class', 'dot-group')
-        .attr('transform', (d) => `translate(${d.x}, ${d.y})`);
-
-      enter.append('circle')
-        .attr('class', 'map-dot-pulse')
-        .style('animation-delay', () => `${Math.random() * 2}s`);
-
-      enter.append('circle')
-        .attr('class', 'map-dot')
-        .on('mouseenter', (event, d) => showTooltip(event, d))
-        .on('mousemove',  (event)    => moveTooltip(event))
-        .on('mouseleave', ()         => hideTooltip());
-
-      // Update both new and existing groups
-      const all = enter.merge(groups);
-      all.attr('transform', (d) => `translate(${d.x}, ${d.y})`);
-      all.select('.map-dot')
-        .attr('class', (d) => `map-dot ${d.tier}`)
-        .attr('r', (d) => 2 + Math.sqrt(d.count) / 1.6);
-      all.select('.map-dot-pulse')
-        .attr('class', (d) => `map-dot-pulse ${d.tier ? 'tier-' + d.tier : ''}`)
-        .attr('r', (d) => 2 + Math.sqrt(d.count) / 1.4)
-        .each(function (d) {
-          if (d.tier === 'green')  this.style.fill = 'var(--green)';
-          else if (d.tier === 'purple') this.style.fill = 'var(--purple-soft)';
-          else this.style.fill = 'var(--blue-bright)';
+      globe
+        .pointsData(cities)
+        .pointLat('lat')
+        .pointLng('lng')
+        // Altitude (height of the column above the surface) scales with
+        // count; gives a quick visual sense of where activity concentrates.
+        .pointAltitude((d) => 0.04 + Math.min(0.40, Math.sqrt(d.count) / 30))
+        .pointRadius((d) => 0.35 + Math.min(0.8, Math.sqrt(d.count) / 12))
+        .pointColor((d) => colorFor(d.count))
+        .pointResolution(12)
+        .pointsMerge(false)            // keep individual interactivity per point
+        .pointLabel(labelFor)
+        .onPointHover((d) => {
+          // Slow auto-rotate when the cursor is over a city so the user
+          // can read the label without chasing the dot.
+          globe.controls().autoRotate = !d;
         });
-    }
 
-    function showTooltip(event, d) {
-      tooltip.querySelector('.city').textContent = `${flagFromIso(d.countryCode)} ${d.city}`;
-      tooltip.querySelector('.country').textContent = d.country || '';
-      tooltip.querySelector('.row strong').textContent = d.count.toLocaleString();
-      tooltip.classList.add('visible');
-      moveTooltip(event);
+      // Single city → swing the camera over to it so the dot is visible
+      // without the user needing to drag. Many cities → keep the wide
+      // Atlantic-centric default set in ensureGlobe().
+      if (cities.length === 1) {
+        const c = cities[0];
+        globe.pointOfView({ lat: c.lat, lng: c.lng, altitude: 1.9 }, 1200);
+      }
     }
-    function moveTooltip(event) {
-      const rect = document.querySelector('.map-wrap').getBoundingClientRect();
-      tooltip.style.left = (event.clientX - rect.left) + 'px';
-      tooltip.style.top  = (event.clientY - rect.top)  + 'px';
-    }
-    function hideTooltip() { tooltip.classList.remove('visible'); }
 
     // ─── Growth chart ─────────────────────────────────────────
     function renderGrowthChart(growth) {
@@ -1366,39 +1768,37 @@
       svg.innerHTML = html;
     }
 
-    // ─── Platform donut ───────────────────────────────────────
-    function renderPlatformDonut(platformMix) {
-      const svg = document.getElementById('platformDonut');
-      const list = document.getElementById('platformList');
-      const cx = 50, cy = 50, r = 38, stroke = 10;
-      const C = 2 * Math.PI * r;
+    // ─── CLI versions ─────────────────────────────────────────
+    function renderCliVersions(versions) {
+      const target = document.getElementById('versionList');
+      if (!versions || versions.length === 0) {
+        target.innerHTML = `<div class="empty-row">No version data yet — npm refreshes per-version counts daily.</div>`;
+        return;
+      }
+      // Show the top 6 versions; "+N more" line for the rest so the panel
+      // doesn't get noisy on packages with a long publish history.
+      const top = versions.slice(0, 6);
+      const restCount = versions.length - top.length;
+      const max = Math.max(...top.map((v) => v.downloads));
 
-      const mix = (platformMix || []).filter((p) => p.pct > 0);
-      const total = mix.reduce((s, p) => s + p.pct, 0) || 0;
-
-      let html = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="${stroke}"/>`;
-      let offset = 0;
-      mix.forEach((p) => {
-        const dash = (p.pct / 100) * C;
-        html += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${p.color}" stroke-width="${stroke}"
-                  stroke-dasharray="${dash} ${C - dash}" stroke-dashoffset="${-offset}"
-                  transform="rotate(-90 ${cx} ${cy})" stroke-linecap="butt"/>`;
-        offset += dash;
-      });
-
-      const lead = mix[0];
-      html += `<text class="donut-center" x="${cx}" y="${cy - 2}" text-anchor="middle" dominant-baseline="middle">${lead ? lead.pct : 0}%</text>`;
-      html += `<text class="donut-label" x="${cx}" y="${cy + 14}" text-anchor="middle">${lead ? (lead.label.split(' ')[0]) : '—'}</text>`;
-      svg.innerHTML = html;
-
-      list.innerHTML = total > 0
-        ? mix.map((p) => `
-            <div class="platform-row">
-              <span class="name"><span class="swatch" style="background: ${p.color}"></span>${p.label}</span>
-              <span class="val">${p.pct}%</span>
+      const rows = top.map((v, i) => {
+        const pct = (v.downloads / max) * 100;
+        const chipClass = i === 0 ? 'version-chip lead' : 'version-chip';
+        return `
+          <div class="version-row">
+            <span class="${chipClass}">v${escapeHtml(v.version)}</span>
+            <div class="country-bar">
+              <div class="country-bar-fill" style="width: ${pct}%; animation-delay: ${i * 60}ms"></div>
             </div>
-          `).join('')
-        : `<div class="empty-row">No data yet</div>`;
+            <div class="country-val">${v.downloads.toLocaleString()}<span style="color: var(--fg-mute); margin-left: 6px;">${v.pct}%</span></div>
+          </div>
+        `;
+      }).join('');
+
+      const footer = restCount > 0
+        ? `<div class="empty-row" style="padding: 8px 4px; text-align: left;">+${restCount} more version${restCount === 1 ? '' : 's'} not shown</div>`
+        : '';
+      target.innerHTML = rows + footer;
     }
 
     // ─── Top countries ────────────────────────────────────────
@@ -1505,6 +1905,30 @@
       banner.hidden = meta?.supabaseConfigured !== false;
     }
 
+    // ─── Data transparency note ───────────────────────────────
+    // Only renders when there's actually something to disclose (i.e. we
+    // dropped a launch-day spike). For established packages this stays hidden.
+    function renderDataNote(meta) {
+      const el = document.getElementById('dataNote');
+      const excluded = meta?.npmLaunchDayDownloadsExcluded ?? 0;
+      const publishedAt = meta?.npmPublishedAt;
+      if (excluded <= 0 || !publishedAt) {
+        el.hidden = true;
+        return;
+      }
+      const pkg = meta.npmPackage || 'package';
+      el.hidden = false;
+      el.innerHTML = `
+        <strong>Note on CLI numbers:</strong>
+        npm reported <strong>${excluded.toLocaleString()}</strong> downloads on
+        <span class="mono">${escapeHtml(publishedAt)}</span> (the day
+        <span class="mono">${escapeHtml(pkg)}</span> was first published) — those are
+        almost entirely mirrors, security scanners and registry indexers, not
+        real installs. They&rsquo;ve been excluded from every total and chart so
+        the numbers reflect actual usage.
+      `;
+    }
+
     // ─── Main loop ────────────────────────────────────────────
     async function loadStats() {
       try {
@@ -1512,10 +1936,11 @@
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const stats = await res.json();
         renderSetupBanner(stats.meta);
+        renderDataNote(stats.meta);
         renderStatCards(stats);
-        renderMap(stats.cities || [], stats.topCountries || []);
+        renderMap(stats.cities || []);
         renderGrowthChart(stats.growth || { cli: [], web: [] });
-        renderPlatformDonut(stats.platformMix || []);
+        renderCliVersions(stats.cliVersions || []);
         renderTopCountries(stats.topCountries || []);
         renderTopSources(stats.topReferrers || []);
         renderLiveFeed(stats.recent || []);

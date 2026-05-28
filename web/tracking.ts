@@ -127,12 +127,23 @@ export interface StatsPayload {
   }[];
   // Mix of npm registry vs web — derived, not stored
   platformMix: { label: string; count: number; pct: number; color: string }[];
+  // CLI version distribution (npm last-week data — the only granularity npm
+  // offers for per-version downloads). Sorted by download count desc.
+  cliVersions: { version: string; downloads: number; pct: number }[];
   // What's actually backing the response — useful for the front-end to show a
   // "demo data" banner if Supabase isn't wired up yet
   meta: {
     supabaseConfigured: boolean;
     npmPackage: string;
     generatedAt: string;
+    // Publish date of the package (YYYY-MM-DD). The dashboard uses this to
+    // render "since launch" labels and to explain why launch-day downloads
+    // are excluded from totals.
+    npmPublishedAt: string | null;
+    // How many downloads npm counted on the publish day (almost entirely
+    // mirrors + scanners). We zero this out across all totals; surfacing
+    // the number lets the dashboard be transparent about what was excluded.
+    npmLaunchDayDownloadsExcluded: number;
   };
 }
 
@@ -140,9 +151,25 @@ export interface StatsPayload {
 // trackEvent — single insert, never throws on the caller
 // ─────────────────────────────────────────────────────────────
 
-export async function trackEvent(payload: TrackPayload, geo: GeoHeaders = {}): Promise<void> {
+export async function trackEvent(
+  payload: TrackPayload,
+  geo: GeoHeaders = {},
+  clientIp?: string
+): Promise<void> {
   const client = supabase();
   if (!client) return;
+
+  // Vercel edge headers are the gold-standard source for geo — when present,
+  // they always win. In local dev (and any environment that strips edge
+  // headers) we fall back to an IP geolocation lookup so the dashboard
+  // doesn't end up with a wall of nulls.
+  const haveEdgeGeo = !!(geo.country || geo.city || geo.latitude);
+  if (!haveEdgeGeo) {
+    const ipGeo = await lookupIpGeo(clientIp);
+    if (ipGeo) {
+      geo = { ...geo, ...ipGeo };
+    }
+  }
 
   const lat = geo.latitude ? parseFloat(geo.latitude) : null;
   const lng = geo.longitude ? parseFloat(geo.longitude) : null;
@@ -160,6 +187,77 @@ export async function trackEvent(payload: TrackPayload, geo: GeoHeaders = {}): P
 
   const { error } = await client.from('events').insert(row);
   if (error) console.error('[tracking] insert failed:', error.message);
+}
+
+// ─────────────────────────────────────────────────────────────
+// IP geolocation fallback (ip-api.com — free, no auth, 45 req/min/IP)
+//
+// Returns a GeoHeaders-shaped object so callers can spread it onto an
+// existing partially-filled object. The cache key is the IP itself; results
+// hold for 1 hour because a given IP rarely changes location.
+//
+// Empty/private/localhost IPs are routed through `/json/` (no IP path) so
+// ip-api uses our outbound IP — which is the server's own IP, i.e. exactly
+// the location of whoever's running `npm run web` locally.
+// ─────────────────────────────────────────────────────────────
+
+const _ipGeoCache = new Map<string, { at: number; geo: GeoHeaders | null }>();
+const IP_GEO_TTL_MS = 60 * 60 * 1000;
+
+async function lookupIpGeo(clientIp?: string): Promise<GeoHeaders | null> {
+  const normalizedIp = normalizeClientIp(clientIp);
+  const cacheKey = normalizedIp ?? '__self__';
+
+  const hit = _ipGeoCache.get(cacheKey);
+  if (hit && Date.now() - hit.at < IP_GEO_TTL_MS) return hit.geo;
+
+  try {
+    const path = normalizedIp ?? '';
+    const url = `http://ip-api.com/json/${path}?fields=status,country,countryCode,city,regionName,lat,lon`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      _ipGeoCache.set(cacheKey, { at: Date.now(), geo: null });
+      return null;
+    }
+    const json: any = await res.json();
+    if (json?.status !== 'success') {
+      _ipGeoCache.set(cacheKey, { at: Date.now(), geo: null });
+      return null;
+    }
+
+    const geo: GeoHeaders = {
+      country: json.countryCode,
+      countryName: json.country,
+      city: json.city,
+      region: json.regionName,
+      latitude: typeof json.lat === 'number' ? String(json.lat) : undefined,
+      longitude: typeof json.lon === 'number' ? String(json.lon) : undefined,
+    };
+    _ipGeoCache.set(cacheKey, { at: Date.now(), geo });
+    return geo;
+  } catch (e) {
+    console.warn('[tracking] ip-api lookup failed:', e);
+    _ipGeoCache.set(cacheKey, { at: Date.now(), geo: null });
+    return null;
+  }
+}
+
+// Strip IPv6-mapped IPv4 prefix and reject IPs that ip-api can't geolocate.
+// We return undefined for localhost / private ranges so the caller falls
+// through to the "no IP" path (uses our outbound IP, which is what dev wants).
+function normalizeClientIp(raw?: string): string | undefined {
+  if (!raw) return undefined;
+  const ip = raw.replace(/^::ffff:/, '').trim();
+  if (!ip) return undefined;
+  if (ip === '::1' || ip === '127.0.0.1') return undefined;
+  // Private IPv4 ranges — RFC 1918
+  if (/^10\./.test(ip)) return undefined;
+  if (/^192\.168\./.test(ip)) return undefined;
+  if (/^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(ip)) return undefined;
+  // Link-local
+  if (/^169\.254\./.test(ip)) return undefined;
+  // Anything else — let ip-api try
+  return ip;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -222,10 +320,13 @@ export async function getStats(): Promise<StatsPayload> {
     topReferrers: web.topReferrers,
     recent: web.recent,
     platformMix,
+    cliVersions: npm.versions,
     meta: {
       supabaseConfigured: !!supabase(),
       npmPackage: NPM_PACKAGE,
       generatedAt: new Date().toISOString(),
+      npmPublishedAt: npm.publishedAt,
+      npmLaunchDayDownloadsExcluded: npm.launchDayDownloads,
     },
   };
 
@@ -246,6 +347,9 @@ async function fetchNpmStats(): Promise<{
   allTime: number;
   last30: { date: string; count: number }[];
   prev30: { date: string; count: number }[];
+  versions: { version: string; downloads: number; pct: number }[];
+  publishedAt: string | null;       // ISO date of first version publish, e.g. "2026-05-12"
+  launchDayDownloads: number;       // downloads counted ON the publish day (bots/mirrors)
 }> {
   const today = new Date();
   const fmt = (d: Date) => d.toISOString().slice(0, 10);
@@ -256,29 +360,96 @@ async function fetchNpmStats(): Promise<{
   const prev30Start = new Date(prev30End.getTime() - 29 * day);
 
   try {
-    const [last30Res, prev30Res, allTimeRes] = await Promise.all([
+    // npm's per-version endpoint only supports `last-day` / `last-week` (not
+    // arbitrary date ranges) — `last-week` gives the richest signal without
+    // missing recently-published versions, so we use that.
+    //
+    // The /registry endpoint gives us the publish date so we can strip the
+    // launch-day bot spike from totals — npm mirrors, security scanners and
+    // download-tracker services all pull every new package immediately, and
+    // for a brand-new package that single day can be 80%+ of all downloads.
+    const [last30Res, prev30Res, allTimeRes, versionsRes, registryRes] = await Promise.all([
       fetch(`https://api.npmjs.org/downloads/range/${fmt(last30Start)}:${fmt(today)}/${NPM_PACKAGE}`),
       fetch(`https://api.npmjs.org/downloads/range/${fmt(prev30Start)}:${fmt(prev30End)}/${NPM_PACKAGE}`),
       fetch(`https://api.npmjs.org/downloads/point/2015-01-10:${fmt(today)}/${NPM_PACKAGE}`),
+      fetch(`https://api.npmjs.org/versions/${NPM_PACKAGE}/last-week`),
+      fetch(`https://registry.npmjs.org/${NPM_PACKAGE}`),
     ]);
 
     const last30Json: any = last30Res.ok ? await last30Res.json() : { downloads: [] };
     const prev30Json: any = prev30Res.ok ? await prev30Res.json() : { downloads: [] };
     const allTimeJson: any = allTimeRes.ok ? await allTimeRes.json() : { downloads: 0 };
+    const versionsJson: any = versionsRes.ok ? await versionsRes.json() : { downloads: {} };
+    const registryJson: any = registryRes.ok ? await registryRes.json() : null;
+
+    // First published date — for "opendevtool" this is 2026-05-12T00:41:28Z.
+    // The `time` object has one timestamp per version + `created` + `modified`;
+    // `created` is the most reliable signal of "the day this package first
+    // appeared on the registry".
+    const publishedAtRaw: string | null = registryJson?.time?.created ?? null;
+    const publishedAt: string | null = publishedAtRaw ? publishedAtRaw.slice(0, 10) : null;
 
     const toSeries = (j: any): { date: string; count: number }[] =>
       Array.isArray(j?.downloads)
         ? j.downloads.map((d: any) => ({ date: d.day, count: d.downloads }))
         : [];
 
+    // Filter out the launch-day count from every series + the all-time total.
+    // After 30 days have passed the publish day naturally falls out of the
+    // window, so this is a no-op for established packages.
+    const last30Raw = toSeries(last30Json);
+    const prev30Raw = toSeries(prev30Json);
+    const launchDayInLast30 = publishedAt
+      ? last30Raw.find((p) => p.date === publishedAt)?.count ?? 0
+      : 0;
+    const launchDayInPrev30 = publishedAt
+      ? prev30Raw.find((p) => p.date === publishedAt)?.count ?? 0
+      : 0;
+
+    const last30 = last30Raw.map((p) =>
+      p.date === publishedAt ? { ...p, count: 0 } : p
+    );
+    const prev30 = prev30Raw.map((p) =>
+      p.date === publishedAt ? { ...p, count: 0 } : p
+    );
+
+    const allTimeRaw = typeof allTimeJson?.downloads === 'number' ? allTimeJson.downloads : 0;
+    const allTime = Math.max(0, allTimeRaw - launchDayInLast30 - launchDayInPrev30);
+
+    // Versions endpoint shape: { package: "X", downloads: { "0.5.0": 3, ... } }
+    // Returns an array sorted by download count desc, with a pct relative to
+    // total downloads across the captured versions.
+    const versionsRaw: Record<string, number> =
+      versionsJson?.downloads && typeof versionsJson.downloads === 'object'
+        ? versionsJson.downloads
+        : {};
+    const versionsTotal = sum(Object.values(versionsRaw));
+    const versions = Object.entries(versionsRaw)
+      .map(([version, downloads]) => ({
+        version,
+        downloads,
+        pct: versionsTotal > 0 ? round((downloads / versionsTotal) * 100, 1) : 0,
+      }))
+      .sort((a, b) => b.downloads - a.downloads);
+
     return {
-      allTime: typeof allTimeJson?.downloads === 'number' ? allTimeJson.downloads : 0,
-      last30: toSeries(last30Json),
-      prev30: toSeries(prev30Json),
+      allTime,
+      last30,
+      prev30,
+      versions,
+      publishedAt,
+      launchDayDownloads: launchDayInLast30 + launchDayInPrev30,
     };
   } catch (e) {
     console.error('[tracking] npm API failed:', e);
-    return { allTime: 0, last30: [], prev30: [] };
+    return {
+      allTime: 0,
+      last30: [],
+      prev30: [],
+      versions: [],
+      publishedAt: null,
+      launchDayDownloads: 0,
+    };
   }
 }
 
@@ -426,6 +597,10 @@ function aggregateCities(rows: EventRow[]): StatsPayload['cities'] {
 function aggregateCountries(rows: EventRow[]): StatsPayload['topCountries'] {
   const acc = new Map<string, { name: string; code: string | null; count: number }>();
   for (const r of rows) {
+    // Skip events that came in without geo data — they're real events but
+    // contribute nothing to a "top countries" ranking. They still show up in
+    // the webEvents total; this filter just keeps the ranking clean.
+    if (!r.country_code && !r.country) continue;
     const name = r.country ?? countryFromCode(r.country_code ?? '') ?? 'Unknown';
     const key = r.country_code ?? name;
     const prev = acc.get(key);

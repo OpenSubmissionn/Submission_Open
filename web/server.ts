@@ -1735,12 +1735,14 @@ const server = http.createServer(async (req, res) => {
     try {
       const body = await readJsonBody(req);
       const geo = readGeoHeaders(req);
+      const clientIp = readClientIp(req);
       await trackEvent(
         {
           event_type: 'tx_profiled',
           referrer: typeof body.referrer === 'string' ? body.referrer : undefined,
         },
-        geo
+        geo,
+        clientIp
       );
       return send(res, 200, JSON.stringify({ ok: true }), {
         'Content-Type': 'application/json',
@@ -1815,6 +1817,16 @@ function readGeoHeaders(req: http.IncomingMessage): GeoHeaders {
     latitude: h('x-vercel-ip-latitude'),
     longitude: h('x-vercel-ip-longitude'),
   };
+}
+
+// Best-effort client IP. Vercel sets `x-forwarded-for` at the edge; behind
+// any other proxy it's the convention too. Falls back to the raw socket
+// address for direct connections (= localhost in dev).
+function readClientIp(req: http.IncomingMessage): string | undefined {
+  const xff = req.headers['x-forwarded-for'];
+  const xffStr = Array.isArray(xff) ? xff[0] : xff;
+  if (xffStr) return xffStr.split(',')[0]?.trim();
+  return req.socket.remoteAddress ?? undefined;
 }
 
 // Only start the long-running HTTP server when this file is executed directly
