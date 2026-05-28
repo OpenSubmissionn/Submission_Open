@@ -274,10 +274,10 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 14px 28px;
+      padding: 14px 20px;
       max-width: 1200px;
       margin: 0 auto;
-      gap: 20px;
+      gap: 16px;
     }
 
     .logo {
@@ -316,11 +316,12 @@
 
     .nav-links {
       display: flex;
-      gap: 8px;
+      gap: 6px;
       align-items: center;
-      font-size: 14px;
+      font-size: 13.5px;
       font-weight: 700;
       color: var(--fg);
+      white-space: nowrap;
     }
 
     /* Plain text links — Versions, How it works, Features. Pill-style
@@ -360,14 +361,15 @@
     .nav-cta {
       position: relative;
       overflow: hidden;
-      padding: 8px 16px;
+      padding: 8px 14px;
       margin-left: 4px;
       border-radius: 8px;
       border: 1px solid rgba(96, 165, 250, 0.45);
       background: rgba(30, 127, 255, 0.12);
       color: var(--fg);
-      font-size: 14px;
+      font-size: 13.5px;
       font-weight: 600;
+      flex-shrink: 0;
       transition:
         background 0.2s ease,
         border-color 0.2s ease,
