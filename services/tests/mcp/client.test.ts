@@ -22,7 +22,10 @@ describe('MCP Client', () => {
     });
     vi.stubGlobal('fetch', mockFetch);
 
-    process.env.MCP_ENDPOINT_URL = 'http://localhost:3000/mcp';
+    // MED-05: MCP_ENDPOINT_URL is required to be https. Using a TEST-RESERVED
+    // .example domain (RFC 6761) so even if the validator ever resolves the
+    // host, no real lookup happens. The fetch call is fully mocked anyway.
+    process.env.MCP_ENDPOINT_URL = 'https://mcp.example/mcp';
 
     const payload: MCPPayload = {
       bottleneckProgram: 'pump',
@@ -44,7 +47,10 @@ describe('MCP Client', () => {
     const mockFetch = vi.fn().mockRejectedValue(new Error('AbortError: The operation was aborted'));
     vi.stubGlobal('fetch', mockFetch);
 
-    process.env.MCP_ENDPOINT_URL = 'http://localhost:3000/mcp';
+    // MED-05: MCP_ENDPOINT_URL is required to be https. Using a TEST-RESERVED
+    // .example domain (RFC 6761) so even if the validator ever resolves the
+    // host, no real lookup happens. The fetch call is fully mocked anyway.
+    process.env.MCP_ENDPOINT_URL = 'https://mcp.example/mcp';
 
     const payload: MCPPayload = {
       bottleneckProgram: 'pump',
@@ -70,7 +76,10 @@ describe('MCP Client', () => {
 
     vi.stubGlobal('fetch', mockFetch);
 
-    process.env.MCP_ENDPOINT_URL = 'http://localhost:3000/mcp';
+    // MED-05: MCP_ENDPOINT_URL is required to be https. Using a TEST-RESERVED
+    // .example domain (RFC 6761) so even if the validator ever resolves the
+    // host, no real lookup happens. The fetch call is fully mocked anyway.
+    process.env.MCP_ENDPOINT_URL = 'https://mcp.example/mcp';
 
     const payload: MCPPayload = {
       bottleneckProgram: 'pump',
@@ -87,6 +96,58 @@ describe('MCP Client', () => {
     expect(result.suggestions).toEqual([]);
     expect(result.source).toBe('mcp');
     expect(mockFetch).toHaveBeenCalledTimes(2); // Initial + 1 retry
+  });
+
+  it('rejects MCP_ENDPOINT_URL when not https (MED-05)', async () => {
+    const mockFetch = vi.fn();
+    vi.stubGlobal('fetch', mockFetch);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    process.env.MCP_ENDPOINT_URL = 'http://internal-vault.local/secrets';
+
+    const payload: MCPPayload = {
+      bottleneckProgram: 'pump',
+      instructionName: 'swap',
+      cuConsumed: 50000,
+      cpiDepth: 2,
+      accountDiffSummary: '5 accounts modified',
+      parsedErrors: [],
+      logSummary: '2 CPI calls',
+    };
+
+    const result = await requestInsights(payload);
+
+    expect(result.suggestions).toEqual([]);
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('MCP_ENDPOINT_URL rejected'));
+    warnSpy.mockRestore();
+  });
+
+  it('rejects MCP_ENDPOINT_URL when host not in MCP_ENDPOINT_HOST_ALLOWLIST (MED-05)', async () => {
+    const mockFetch = vi.fn();
+    vi.stubGlobal('fetch', mockFetch);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    process.env.MCP_ENDPOINT_URL = 'https://attacker.example/mcp';
+    process.env.MCP_ENDPOINT_HOST_ALLOWLIST = 'mcp.example,mcp.alt.example';
+
+    const payload: MCPPayload = {
+      bottleneckProgram: 'pump',
+      instructionName: 'swap',
+      cuConsumed: 50000,
+      cpiDepth: 2,
+      accountDiffSummary: '5 accounts modified',
+      parsedErrors: [],
+      logSummary: '2 CPI calls',
+    };
+
+    const result = await requestInsights(payload);
+
+    expect(result.suggestions).toEqual([]);
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('MCP_ENDPOINT_URL rejected'));
+    warnSpy.mockRestore();
+    delete process.env.MCP_ENDPOINT_HOST_ALLOWLIST;
   });
 
   it('MCP_DISABLED returns empty suggestions without making a network call', async () => {

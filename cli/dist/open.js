@@ -24815,7 +24815,28 @@ var SUPPORTED_PROVIDERS = ["groq", "anthropic"];
 var DEFAULT_DIR = import_node_path.default.join(import_node_os.default.homedir(), ".opendev");
 var DEFAULT_FILE = import_node_path.default.join(DEFAULT_DIR, "credentials.json");
 function credentialsPath() {
-  return process.env.OPENDEV_CREDS_PATH || DEFAULT_FILE;
+  const override = process.env.OPENDEV_CREDS_PATH;
+  if (!override) return DEFAULT_FILE;
+  const resolved = import_node_path.default.resolve(override);
+  const home = import_node_path.default.resolve(import_node_os.default.homedir());
+  const rel = import_node_path.default.relative(home, resolved);
+  if (rel.startsWith("..") || import_node_path.default.isAbsolute(rel)) {
+    console.warn(
+      `[opendev] OPENDEV_CREDS_PATH=${override} is outside $HOME \u2014 ignoring and using ${DEFAULT_FILE}.`
+    );
+    return DEFAULT_FILE;
+  }
+  try {
+    const st = import_node_fs.default.lstatSync(resolved);
+    if (st.isSymbolicLink()) {
+      console.warn(
+        `[opendev] OPENDEV_CREDS_PATH=${override} is a symlink \u2014 ignoring and using ${DEFAULT_FILE}.`
+      );
+      return DEFAULT_FILE;
+    }
+  } catch {
+  }
+  return resolved;
 }
 function isProvider(value) {
   return SUPPORTED_PROVIDERS.includes(value);
@@ -28928,6 +28949,7 @@ function findCargoRoot(startPath) {
   return null;
 }
 function buildCommand(kind, absInput) {
+  const isWindows = process.platform === "win32";
   if (kind === "rust-source") {
     const cargoRoot = findCargoRoot(absInput);
     if (!cargoRoot) {
@@ -28938,17 +28960,10 @@ function buildCommand(kind, absInput) {
     return { cmd: "cargo", args: ["run", "--release", "--quiet"], cwd: cargoRoot };
   }
   if (kind === "ts-source") {
-    return {
-      cmd: "npx",
-      args: ["-y", "tsx", absInput],
-      cwd: path4.dirname(absInput)
-    };
+    const cmd = isWindows ? "npx.cmd" : "npx";
+    return { cmd, args: ["-y", "tsx", absInput], cwd: path4.dirname(absInput) };
   }
   return { cmd: "node", args: [absInput], cwd: path4.dirname(absInput) };
-}
-function quoteArgForWindowsShell(arg) {
-  if (!/[\s"&|<>^()%!]/.test(arg)) return arg;
-  return `"${arg.replace(/"/g, '\\"')}"`;
 }
 function killProcessTree(pid) {
   if (pid === void 0) return;
@@ -28991,16 +29006,13 @@ async function runSourceFile(rawInput, options = {}) {
   const { cmd, args, cwd } = buildCommand(kind, absInput);
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const commandStr = `${cmd} ${args.join(" ")}`;
-  const isWindows = process.platform === "win32";
-  const spawnTarget = isWindows ? [cmd, ...args.map(quoteArgForWindowsShell)].join(" ") : cmd;
-  const spawnArgs = isWindows ? [] : args;
   const start = Date.now();
   return new Promise((resolve5, reject) => {
-    const child = (0, import_child_process.spawn)(spawnTarget, spawnArgs, {
+    const child = (0, import_child_process.spawn)(cmd, args, {
       cwd,
       env: { ...process.env, ...options.env },
       stdio: ["ignore", "pipe", "pipe"],
-      shell: isWindows,
+      shell: false,
       windowsHide: true
     });
     let stdout = "";
@@ -29689,14 +29701,36 @@ async function callGroq(payload, apiKey, model, signal) {
 // ../services/src/mcp/client.ts
 var DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-5";
 var DEFAULT_GROQ_MODEL = "llama-3.3-70b-versatile";
+function validateMcpEndpoint(raw) {
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "https:") return null;
+  const allowlistRaw = process.env.MCP_ENDPOINT_HOST_ALLOWLIST;
+  if (allowlistRaw && allowlistRaw.trim().length > 0) {
+    const allowed = allowlistRaw.split(",").map((s) => s.trim().toLowerCase());
+    if (!allowed.includes(parsed.hostname.toLowerCase())) return null;
+  }
+  return parsed;
+}
 async function requestInsights(payload) {
   if (process.env.MCP_DISABLED) {
     return { suggestions: [], source: "mcp" };
   }
   const endpointUrl = process.env.MCP_ENDPOINT_URL;
   if (endpointUrl) {
-    announceProvider("Custom MCP", new URL(endpointUrl).host);
-    return callMcpEndpoint(endpointUrl, payload);
+    const validated = validateMcpEndpoint(endpointUrl);
+    if (!validated) {
+      console.warn(
+        "[MCP] MCP_ENDPOINT_URL rejected \u2014 must be https and (when MCP_ENDPOINT_HOST_ALLOWLIST is set) on an allowlisted host. Falling back to rule-based insights."
+      );
+      return { suggestions: [], source: "mcp" };
+    }
+    announceProvider("Custom MCP", validated.host);
+    return callMcpEndpoint(validated.toString(), payload);
   }
   const groqKey = process.env.GROQ_API_KEY;
   if (groqKey) {
@@ -29750,7 +29784,8 @@ async function callMcpEndpoint(url, payload) {
         return { suggestions: [], source: "mcp" };
       }
       const data = await response.json();
-      return { suggestions: data.suggestions ?? [], source: "mcp" };
+      const suggestions = Array.isArray(data.suggestions) ? data.suggestions.filter((s) => typeof s === "string").map((s) => s.slice(0, 500)) : [];
+      return { suggestions, source: "mcp" };
     } catch (error) {
       if (retryCount < 1) return attempt(retryCount + 1);
       const msg = error instanceof Error ? error.message : String(error);

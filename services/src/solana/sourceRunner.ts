@@ -56,6 +56,7 @@ function findCargoRoot(startPath: string): string | null {
 }
 
 function buildCommand(kind: SourceKind, absInput: string): { cmd: string; args: string[]; cwd: string } {
+  const isWindows = process.platform === 'win32';
   if (kind === 'rust-source') {
     const cargoRoot = findCargoRoot(absInput);
     if (!cargoRoot) {
@@ -64,25 +65,21 @@ function buildCommand(kind: SourceKind, absInput: string): { cmd: string; args: 
           `Initialize a Rust project (cargo init) or pass the project root.`
       );
     }
+    // On Windows cargo ships as cargo.exe — Node resolves it via PATHEXT
+    // when shell is false, so the bare name still works.
     return { cmd: 'cargo', args: ['run', '--release', '--quiet'], cwd: cargoRoot };
   }
   if (kind === 'ts-source') {
-    return {
-      cmd: 'npx',
-      args: ['-y', 'tsx', absInput],
-      cwd: path.dirname(absInput),
-    };
+    // MED-08: On Windows, npx is shipped as npx.cmd which Node refuses to
+    // exec directly when shell:false. Spawn the .cmd extension explicitly
+    // and skip shell:true — that eliminates the cmd.exe quoting/expansion
+    // surface (%VAR%, ^ escapes, delayed expansion !VAR!) entirely.
+    const cmd = isWindows ? 'npx.cmd' : 'npx';
+    return { cmd, args: ['-y', 'tsx', absInput], cwd: path.dirname(absInput) };
   }
+  // js-source — node.exe is resolvable via PATHEXT on Windows.
   return { cmd: 'node', args: [absInput], cwd: path.dirname(absInput) };
 }
-
-/* v8 ignore start -- Windows-only, unreachable on Linux CI */
-function quoteArgForWindowsShell(arg: string): string {
-  // cmd.exe interprets these chars; quote anything with whitespace or shell metacharacters.
-  if (!/[\s"&|<>^()%!]/.test(arg)) return arg;
-  return `"${arg.replace(/"/g, '\\"')}"`;
-}
-/* v8 ignore stop */
 
 function killProcessTree(pid: number | undefined): void {
   if (pid === undefined) return;
@@ -140,24 +137,19 @@ export async function runSourceFile(
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const commandStr = `${cmd} ${args.join(' ')}`;
 
-  const isWindows = process.platform === 'win32';
-  // On Windows, .cmd shims (e.g. npx.cmd) cannot be spawned without a shell.
-  // We pass the full pre-quoted command as a single string and use shell: true,
-  // which avoids DEP0190 (passing args separately under shell mode is deprecated).
-  /* v8 ignore next 4 -- Windows branch unreachable on Linux CI */
-  const spawnTarget = isWindows
-    ? [cmd, ...args.map(quoteArgForWindowsShell)].join(' ')
-    : cmd;
-  const spawnArgs = isWindows ? [] : args;
-
   const start = Date.now();
 
   return new Promise((resolve, reject) => {
-    const child = spawn(spawnTarget, spawnArgs, {
+    // MED-08: shell: false everywhere. On Windows we explicitly spawn
+    // npx.cmd / cargo.exe / node.exe (cargo and node resolve via PATHEXT),
+    // which bypasses cmd.exe and removes the entire %VAR%/escape/delayed-
+    // expansion attack surface. windowsHide keeps the console window from
+    // flashing for ts/js runners.
+    const child = spawn(cmd, args, {
       cwd,
       env: { ...process.env, ...options.env },
       stdio: ['ignore', 'pipe', 'pipe'],
-      shell: isWindows,
+      shell: false,
       windowsHide: true,
     });
 

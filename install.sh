@@ -7,10 +7,19 @@
 # What it does:
 #   1. Detects your OS (Linux / macOS / WSL).
 #   2. Verifies Node.js 18+ is installed; offers to install via nvm if not.
-#   3. Clones the repo to a temp dir, builds the CLI, then installs only the
-#      `cli/` package globally with --ignore-scripts (avoids the workspace
-#      issue that breaks plain `npm install -g github:...`).
+#   3. Clones the repo to a temp dir, runs `npm ci --ignore-scripts` against
+#      the committed lockfile, builds the CLI, then installs only the `cli/`
+#      package globally with --ignore-scripts.
 #   4. Smoke-tests the install with `opendev --version`.
+#
+# Trust model:
+#   This script clones and installs third-party JavaScript on your machine.
+#   `--ignore-scripts` blocks lifecycle (preinstall/install/postinstall) hooks
+#   in every dep — that's the main supply-chain defence. `npm ci` reads
+#   integrity hashes from the committed package-lock.json, so a transient
+#   tampering of a registry entry will fail loud rather than silently
+#   resolve to a malicious version. If you don't trust the upstream repo
+#   author, audit the cloned source before re-running.
 #
 # Bypass: pass --yes to skip prompts (for CI / scripted installs).
 
@@ -190,14 +199,34 @@ cd "$TMPDIR/opendev"
 
 say "Installing workspace dependencies (this takes ~1-2 minutes)..."
 NPM_INSTALL_LOG="$TMPDIR/npm-install.log"
+# `npm ci --ignore-scripts` pins every transitive version against the
+# committed lockfile AND refuses to run lifecycle scripts during install.
+# Both properties are required for supply-chain safety (HIGH-03 in the
+# security audit): a compromised transitive dep can't ship a postinstall
+# that drains the user's ~/.ssh, ~/.aws, or ~/.opendev secrets.
+#
+# We still need to build the CLI afterwards — that step runs only the
+# project's own build scripts, in isolation.
+#
 # Capture output to a log so we can grep for known errors after, while still
 # showing realtime output via tee. We swallow tee's exit code via a subshell
 # trick so $? after the pipeline reflects npm's status (POSIX-portable since
 # we don't rely on pipefail, which not all sh implementations support).
-( npm install --no-fund --no-audit --loglevel=error 2>&1 ; echo "__NPM_RC__:$?" ) | tee "$NPM_INSTALL_LOG"
+( npm ci --ignore-scripts --no-fund --no-audit --loglevel=error 2>&1 ; echo "__NPM_RC__:$?" ) | tee "$NPM_INSTALL_LOG"
 NPM_RC="$(grep -E '^__NPM_RC__:' "$NPM_INSTALL_LOG" | tail -1 | sed 's/__NPM_RC__://')"
 if [ "${NPM_RC:-1}" -ne 0 ]; then
-  err "npm install failed."
+  err "npm ci failed."
+  # `npm ci` exits with a clear error if package-lock.json is missing or
+  # out of sync with package.json. Surface that explicitly so the user
+  # doesn't think it's a network glitch.
+  if grep -qE "(package-lock|npm-shrinkwrap).*(missing|out of sync)" "$NPM_INSTALL_LOG"; then
+    err ""
+    err "package-lock.json is missing or out of sync with package.json."
+    err "This usually means you cloned a fork without the committed lockfile."
+    err "Fix by re-cloning from the canonical repo:"
+    err "    git clone $REPO_URL"
+    exit 1
+  fi
   if grep -q "EACCES" "$NPM_INSTALL_LOG"; then
     err ""
     err "EACCES detected. The most likely cause is root-owned files in your"
@@ -208,12 +237,14 @@ if [ "${NPM_RC:-1}" -ne 0 ]; then
     err "Then re-run the curl one-liner. This is a one-time fix per machine."
   elif grep -q "EINTEGRITY" "$NPM_INSTALL_LOG"; then
     err ""
-    err "EINTEGRITY (corrupted cache or registry hiccup). Fix with:"
+    err "EINTEGRITY. With \`npm ci\` this usually means the lockfile no longer"
+    err "matches what's on the registry — sometimes a registry hiccup, sometimes"
+    err "a tampered cache. Fix with:"
     err "    npm cache clean --force"
     err "Then re-run."
   else
     err "Re-run with verbose output to diagnose:"
-    err "  cd $TMPDIR/opendev && npm install"
+    err "  cd $TMPDIR/opendev && npm ci --ignore-scripts"
     err ""
     err "Common fixes:"
     err "  - Node version mismatch:  nvm use 20"

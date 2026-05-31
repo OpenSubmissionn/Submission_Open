@@ -7,6 +7,11 @@ const apiCache = new Map<string, any>();
 /**
  * Fetches program/token metadata from the Helius API.
  *
+ * The API key travels in the Authorization header instead of the URL query
+ * string so it doesn't leak into access logs, proxy caches, or axios error
+ * objects (which serialize `config.url`). Helius supports both, but only the
+ * header form is safe by default.
+ *
  * @param programId - The program or token mint address.
  * @param apiKey - The Helius API key.
  * @returns The program info or null if not found.
@@ -16,12 +21,12 @@ async function fetchProgramInfoFromAPI(programId: string, apiKey: string): Promi
     return apiCache.get(programId);
   }
 
-  const url = `https://api.helius.xyz/v0/token-metadata?api-key=${apiKey}`;
   try {
-    const { data } = await axios.post(url, {
-      mintAccounts: [programId],
-      includeOffChain: true,
-    });
+    const { data } = await axios.post(
+      'https://api.helius.xyz/v0/token-metadata',
+      { mintAccounts: [programId], includeOffChain: true },
+      { headers: { Authorization: `Bearer ${apiKey}` } }
+    );
 
     if (data && data.length > 0 && data[0].onChainAccountInfo) {
       const metadata = data[0];
@@ -39,9 +44,14 @@ async function fetchProgramInfoFromAPI(programId: string, apiKey: string): Promi
     apiCache.set(programId, null); // Cache the fact that it wasn't found
     return null;
   } catch (error) {
-    // Don't log errors for not found, but log other potential issues.
+    // Don't log errors for not found, but log other potential issues. Only the
+    // status + message are logged — never the request URL or headers, since
+    // axios includes the Authorization header on `error.config.headers` and a
+    // verbose console dump could leak the key through CI/server logs.
     if (axios.isAxiosError(error) && error.response?.status !== 404) {
-      console.error('Helius API Error:', error.message);
+      console.error(
+        `Helius API error (HTTP ${error.response?.status ?? 'network'}): ${error.message}`
+      );
     }
     apiCache.set(programId, null);
     return null;

@@ -89,6 +89,33 @@ import { callGroq } from './groq.js';
 const DEFAULT_ANTHROPIC_MODEL = 'claude-sonnet-4-5';
 const DEFAULT_GROQ_MODEL = 'llama-3.3-70b-versatile';
 
+/**
+ * Validate a user-supplied MCP_ENDPOINT_URL. Rules:
+ *   - Must be a syntactically valid URL.
+ *   - Must use `https:`. Plain http is rejected so credentials in payload
+ *     don't travel in cleartext, and so loopback/internal hosts don't get
+ *     a free SSRF primitive over http.
+ *   - If `MCP_ENDPOINT_HOST_ALLOWLIST` is set (comma-separated), the URL's
+ *     hostname must match one of the entries exactly.
+ *
+ * Returns the parsed URL on success, `null` on rejection.
+ */
+function validateMcpEndpoint(raw: string): URL | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== 'https:') return null;
+  const allowlistRaw = process.env.MCP_ENDPOINT_HOST_ALLOWLIST;
+  if (allowlistRaw && allowlistRaw.trim().length > 0) {
+    const allowed = allowlistRaw.split(',').map((s) => s.trim().toLowerCase());
+    if (!allowed.includes(parsed.hostname.toLowerCase())) return null;
+  }
+  return parsed;
+}
+
 export async function requestInsights(payload: MCPPayload): Promise<MCPInsightResponse> {
   if (process.env.MCP_DISABLED) {
     return { suggestions: [], source: 'mcp' };
@@ -96,8 +123,20 @@ export async function requestInsights(payload: MCPPayload): Promise<MCPInsightRe
 
   const endpointUrl = process.env.MCP_ENDPOINT_URL;
   if (endpointUrl) {
-    announceProvider('Custom MCP', new URL(endpointUrl).host);
-    return callMcpEndpoint(endpointUrl, payload);
+    // MED-05: validate the custom endpoint URL before making any request.
+    // Without this, an operator-set (or env-injected) MCP_ENDPOINT_URL is a
+    // server-side request primitive — it could be pointed at instance
+    // metadata, internal vault hosts, etc. The validator below enforces
+    // https + an optional MCP_ENDPOINT_HOST_ALLOWLIST.
+    const validated = validateMcpEndpoint(endpointUrl);
+    if (!validated) {
+      console.warn(
+        '[MCP] MCP_ENDPOINT_URL rejected — must be https and (when MCP_ENDPOINT_HOST_ALLOWLIST is set) on an allowlisted host. Falling back to rule-based insights.'
+      );
+      return { suggestions: [], source: 'mcp' };
+    }
+    announceProvider('Custom MCP', validated.host);
+    return callMcpEndpoint(validated.toString(), payload);
   }
 
   const groqKey = process.env.GROQ_API_KEY;
@@ -158,8 +197,17 @@ async function callMcpEndpoint(url: string, payload: MCPPayload): Promise<MCPIns
         );
         return { suggestions: [], source: 'mcp' };
       }
-      const data = (await response.json()) as { suggestions?: string[] };
-      return { suggestions: data.suggestions ?? [], source: 'mcp' };
+      const data = (await response.json()) as { suggestions?: unknown };
+      // Strict schema check on responses from a (potentially user-controlled)
+      // endpoint. Drop anything that isn't a short string. Length capped at
+      // 500 to keep AI-injected payloads bounded — the client renders these
+      // strings through escapeHtml, but bounding length is cheap insurance.
+      const suggestions = Array.isArray(data.suggestions)
+        ? data.suggestions
+            .filter((s): s is string => typeof s === 'string')
+            .map((s) => s.slice(0, 500))
+        : [];
+      return { suggestions, source: 'mcp' };
     } catch (error) {
       if (retryCount < 1) return attempt(retryCount + 1);
       const msg = error instanceof Error ? error.message : String(error);
