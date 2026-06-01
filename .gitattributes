@@ -1,0 +1,4 @@
+# The committed CLI bundle is a build artifact verified byte-for-byte against
+# source by .github/workflows/verify-dist.yml. Pin it to LF and never apply
+# EOL normalization, so a Windows commit can't diverge from the Linux CI build.
+cli/dist/open.js -text eol=lf

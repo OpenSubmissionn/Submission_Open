@@ -34,9 +34,12 @@ jobs:
 
       - name: Assert committed bundle matches source
         run: |
-          if ! git diff --quiet -- cli/dist; then
-            echo "::error::cli/dist is out of sync with source. Run 'npm run build --workspace cli' and commit the result."
-            git --no-pager diff --stat -- cli/dist
+          # core.fileMode=false ignores the executable-bit difference between a
+          # Windows-committed bundle (100644) and the Linux build's shebang'd
+          # output (100755) — that's not source drift. CONTENT is what matters.
+          if ! git -c core.fileMode=false diff --quiet -- cli/dist; then
+            echo "::error::cli/dist content is out of sync with source. Run 'npm run build --workspace cli' and commit the result."
+            git -c core.fileMode=false --no-pager diff -- cli/dist
             exit 1
           fi
           echo "cli/dist matches source."
