@@ -7,6 +7,13 @@ export type SourceKind = 'rust-source' | 'ts-source' | 'js-source';
 export interface RunSourceOptions {
   timeoutMs?: number;
   env?: NodeJS.ProcessEnv;
+  /**
+   * When true, the child inherits the FULL parent process.env (legacy
+   * behaviour). Defaults to false: secret-looking vars (API keys, tokens,
+   * credentials) are stripped before spawning so a malicious source file
+   * can't read and exfiltrate them — see HIGH-02 / buildChildEnv.
+   */
+  inheritFullEnv?: boolean;
   onProgress?: (line: string, stream: 'stdout' | 'stderr') => void;
 }
 
@@ -27,6 +34,31 @@ const DEFAULT_TIMEOUT_MS = 90_000;
 const BASE64_LINE_REGEX = /^[A-Za-z0-9+/]+={0,2}$/;
 const MIN_BASE64_LEN = 100;
 const STDERR_TAIL_LINES = 20;
+
+// HIGH-02: `open simulate <file>` executes attacker-supplied source. Inheriting
+// the full parent environment handed that code the user's stored AI credentials
+// (ANTHROPIC_API_KEY / GROQ_API_KEY, hydrated into process.env at CLI startup),
+// which a malicious sample file could POST anywhere while still printing a valid
+// tx. We strip anything whose NAME looks like a secret before spawning. The
+// runner only needs toolchain/OS vars (PATH, HOME, CARGO_HOME, RUSTUP_HOME, …),
+// none of which match this pattern. Use --inherit-env to opt back in.
+const SECRET_ENV_PATTERN =
+  /(API[_-]?KEY|APIKEY|SECRET|TOKEN|PASSWORD|PASSWD|CREDENTIAL|PRIVATE[_-]?KEY|ACCESS[_-]?KEY|SESSION|COOKIE|^AUTH|_AUTH|MNEMONIC|SEED_PHRASE)/i;
+
+export function buildChildEnv(
+  extra?: NodeJS.ProcessEnv,
+  inheritFullEnv = false
+): NodeJS.ProcessEnv {
+  const base: NodeJS.ProcessEnv = { ...process.env };
+  if (!inheritFullEnv) {
+    for (const key of Object.keys(base)) {
+      if (SECRET_ENV_PATTERN.test(key)) delete base[key];
+    }
+  }
+  // Caller-supplied vars are applied last and are NOT filtered — they're an
+  // explicit, in-process choice rather than ambient inherited secrets.
+  return { ...base, ...(extra ?? {}) };
+}
 
 export function detectSourceKind(input: string): SourceKind | null {
   if (!fs.existsSync(input)) return null;
@@ -147,7 +179,8 @@ export async function runSourceFile(
     // flashing for ts/js runners.
     const child = spawn(cmd, args, {
       cwd,
-      env: { ...process.env, ...options.env },
+      // Secret-bearing env vars are stripped by default (HIGH-02).
+      env: buildChildEnv(options.env, options.inheritFullEnv),
       stdio: ['ignore', 'pipe', 'pipe'],
       shell: false,
       windowsHide: true,

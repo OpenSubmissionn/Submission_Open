@@ -32,7 +32,38 @@ export const getConnection = (
 };
 
 /**
+ * Classify an error as worth retrying. Terminal conditions — invalid input,
+ * not-found, auth failures — can never succeed on a retry, so retrying them
+ * just triples upstream RPC cost and latency (MED-05). Network blips, timeouts,
+ * 429s and 5xx are transient and worth a backoff.
+ */
+export const isRetryableError = (error: any): boolean => {
+  const code = error?.code ?? error?.status ?? error?.statusCode;
+
+  // JSON-RPC: invalid request / method-not-found / invalid params are terminal.
+  if (code === -32600 || code === -32601 || code === -32602) return false;
+  // HTTP terminal statuses (bad request / auth / not found / unprocessable).
+  if (typeof code === 'number' && [400, 401, 403, 404, 422].includes(code)) return false;
+
+  const msg = (error?.message ?? String(error ?? '')).toLowerCase();
+  const terminalPatterns = [
+    'invalid param',
+    'invalid signature',
+    'invalid public key',
+    'invalid base58',
+    'not found',
+    'unauthorized',
+    'forbidden',
+    'bad request',
+  ];
+  if (terminalPatterns.some((p) => msg.includes(p))) return false;
+
+  return true;
+};
+
+/**
  * Executa uma função com lógica de retry e backoff exponencial.
+ * Retries only transient errors; terminal errors throw immediately.
  */
 export const withRetry = async <T>(fn: () => Promise<T>): Promise<T> => {
   let lastError: any;
@@ -42,9 +73,14 @@ export const withRetry = async <T>(fn: () => Promise<T>): Promise<T> => {
       return await fn();
     } catch (error) {
       lastError = error;
-      const backoff = INITIAL_BACKOFF * Math.pow(2, attempt);
-      console.warn(`Attempt ${attempt + 1} failed. Retrying in ${backoff}ms...`);
-      await new Promise((resolve) => setTimeout(resolve, backoff));
+      // Don't burn retries (and upstream quota) on errors that can't recover.
+      if (!isRetryableError(error)) throw error;
+      // No need to sleep after the final attempt — we're about to give up.
+      if (attempt < MAX_RETRIES - 1) {
+        const backoff = INITIAL_BACKOFF * Math.pow(2, attempt);
+        console.warn(`Attempt ${attempt + 1} failed. Retrying in ${backoff}ms...`);
+        await new Promise((resolve) => setTimeout(resolve, backoff));
+      }
     }
   }
 

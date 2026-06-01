@@ -11,10 +11,27 @@ const rateLimit = (server as any).rateLimit ?? (server as any).default?.rateLimi
 
 const LATEST_LIMIT = { windowMs: 60_000, max: 60 } as const;
 
+function firstHeader(v: string | string[] | undefined): string | undefined {
+  if (!v) return undefined;
+  const s = Array.isArray(v) ? v[0] : v;
+  return s?.split(',')[0]?.trim() || undefined;
+}
+
+// See api/analyze.ts for the rationale — do NOT trust a spoofable
+// `X-Forwarded-For` as the rate-limit identity (HIGH-01).
 function readClientIp(req: VercelRequest): string {
-  const xff = req.headers['x-forwarded-for'];
-  const xffStr = Array.isArray(xff) ? xff[0] : xff;
-  if (xffStr) return xffStr.split(',')[0]?.trim() || 'unknown';
+  const vercelIp = firstHeader(req.headers['x-vercel-forwarded-for']);
+  if (vercelIp) return vercelIp;
+
+  const depth = Number.parseInt(process.env.TRUSTED_PROXY_DEPTH ?? '0', 10);
+  if (Number.isFinite(depth) && depth > 0) {
+    const xff = req.headers['x-forwarded-for'];
+    const list = (Array.isArray(xff) ? xff.join(',') : (xff ?? ''))
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (list.length >= depth) return list[list.length - depth] || 'unknown';
+  }
   return (req.socket as any)?.remoteAddress ?? 'unknown';
 }
 

@@ -1922,10 +1922,33 @@ const server = http.createServer(async (req, res) => {
 // Best-effort client IP. Vercel sets `x-forwarded-for` at the edge; behind
 // any other proxy it's the convention too. Falls back to the raw socket
 // address for direct connections (= localhost in dev).
+function firstHeader(v: string | string[] | undefined): string | undefined {
+  if (!v) return undefined;
+  const s = Array.isArray(v) ? v[0] : v;
+  return s?.split(',')[0]?.trim() || undefined;
+}
+
+// Resolve the client IP for rate-limiting WITHOUT trusting a spoofable
+// `X-Forwarded-For` (HIGH-01). Reading the left-most XFF entry let any caller
+// rotate the header to mint unlimited rate-limit buckets. Trust order:
+//   1. `x-vercel-forwarded-for` — set by Vercel's edge to the real client IP
+//      and stripped of any client-supplied copy.
+//   2. `x-forwarded-for` ONLY when TRUSTED_PROXY_DEPTH=N (you run N proxies);
+//      we take the Nth-from-the-right entry your edge appended.
+//   3. Otherwise the raw TCP peer (localhost in dev), which can't be forged.
 function readClientIp(req: http.IncomingMessage): string | undefined {
-  const xff = req.headers['x-forwarded-for'];
-  const xffStr = Array.isArray(xff) ? xff[0] : xff;
-  if (xffStr) return xffStr.split(',')[0]?.trim();
+  const vercelIp = firstHeader(req.headers['x-vercel-forwarded-for']);
+  if (vercelIp) return vercelIp;
+
+  const depth = Number.parseInt(process.env.TRUSTED_PROXY_DEPTH ?? '0', 10);
+  if (Number.isFinite(depth) && depth > 0) {
+    const xff = req.headers['x-forwarded-for'];
+    const list = (Array.isArray(xff) ? xff.join(',') : (xff ?? ''))
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (list.length >= depth) return list[list.length - depth];
+  }
   return req.socket.remoteAddress ?? undefined;
 }
 

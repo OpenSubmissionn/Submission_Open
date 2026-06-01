@@ -1,5 +1,28 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { requestInsights, MCPPayload } from '../../src/mcp/client';
+import { requestInsights, MCPPayload, sanitizeSuggestion } from '../../src/mcp/client';
+
+describe('sanitizeSuggestion (MED-06)', () => {
+  it('strips ANSI/CSI escape sequences', () => {
+    const dirty = '\x1b[31mDrop tables\x1b[0m and \x1b[2J clear';
+    const clean = sanitizeSuggestion(dirty);
+    expect(clean).not.toContain('\x1b');
+    expect(clean).toContain('Drop tables');
+  });
+
+  it('removes lone control chars (CR/LF/TAB/DEL) by collapsing to spaces', () => {
+    const clean = sanitizeSuggestion('line1\r\nline2\ttab\x07bell\x7fdel');
+    // eslint-disable-next-line no-control-regex
+    expect(/[\x00-\x1f\x7f-\x9f]/.test(clean)).toBe(false);
+    expect(clean).toContain('line1');
+    expect(clean).toContain('line2');
+  });
+
+  it('is a no-op on already-clean text', () => {
+    expect(sanitizeSuggestion('Use exact_in mode to save ~1500 CU.')).toBe(
+      'Use exact_in mode to save ~1500 CU.'
+    );
+  });
+});
 
 describe('MCP Client', () => {
   beforeEach(() => {

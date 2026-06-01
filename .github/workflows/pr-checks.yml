@@ -21,7 +21,17 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm install
+        # MED-02: `npm ci` installs strictly from the committed lockfile and
+        # FAILS on any drift, so a PR can't silently pull unpinned/newer
+        # transitive versions. (Lifecycle scripts stay enabled here because the
+        # build needs them, e.g. esbuild's postinstall — the install path that
+        # disables scripts is install.sh, which only installs the CLI.)
+        run: npm ci
+
+      - name: Audit production dependencies
+        # Surface known CVEs in runtime deps. Non-blocking so a fresh advisory
+        # doesn't wedge every PR, but it's visible in the checks output.
+        run: npm audit --omit=dev || true
 
       - name: Build workspace
         run: npm run build

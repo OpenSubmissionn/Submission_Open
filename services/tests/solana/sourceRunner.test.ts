@@ -3,8 +3,50 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
-import { detectSourceKind, runSourceFile } from '../../src/solana/sourceRunner';
+import { detectSourceKind, runSourceFile, buildChildEnv } from '../../src/solana/sourceRunner';
 import { detectInputKind } from '../../src/solana/simulationService';
+
+describe('sourceRunner - buildChildEnv (HIGH-02 secret stripping)', () => {
+  const secretKeys = [
+    'ANTHROPIC_API_KEY',
+    'GROQ_API_KEY',
+    'AWS_SECRET_ACCESS_KEY',
+    'GITHUB_TOKEN',
+    'DB_PASSWORD',
+    'WALLET_PRIVATE_KEY',
+    'MY_SESSION',
+    'WALLET_MNEMONIC',
+  ];
+
+  beforeAll(() => {
+    for (const k of secretKeys) process.env[k] = 'super-secret-value';
+    process.env.PATH = process.env.PATH ?? '/usr/bin';
+  });
+
+  afterAll(() => {
+    for (const k of secretKeys) delete process.env[k];
+  });
+
+  it('strips secret-looking vars by default', () => {
+    const env = buildChildEnv();
+    for (const k of secretKeys) {
+      expect(env[k], `${k} should be stripped`).toBeUndefined();
+    }
+    // Non-secret toolchain vars survive so cargo/npx/node still work.
+    expect(env.PATH).toBeDefined();
+  });
+
+  it('keeps secrets when inheritFullEnv is true', () => {
+    const env = buildChildEnv(undefined, true);
+    expect(env.ANTHROPIC_API_KEY).toBe('super-secret-value');
+    expect(env.GROQ_API_KEY).toBe('super-secret-value');
+  });
+
+  it('does not filter caller-supplied extra vars', () => {
+    const env = buildChildEnv({ SOME_API_KEY: 'explicit' });
+    expect(env.SOME_API_KEY).toBe('explicit');
+  });
+});
 
 describe('sourceRunner - detectSourceKind', () => {
   let tmpDir: string;

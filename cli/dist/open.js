@@ -28861,6 +28861,24 @@ var getConnection = (rpcUrl, network = "devnet") => {
   };
   return new import_web317.Connection(url, config3);
 };
+var isRetryableError = (error) => {
+  const code = error?.code ?? error?.status ?? error?.statusCode;
+  if (code === -32600 || code === -32601 || code === -32602) return false;
+  if (typeof code === "number" && [400, 401, 403, 404, 422].includes(code)) return false;
+  const msg = (error?.message ?? String(error ?? "")).toLowerCase();
+  const terminalPatterns = [
+    "invalid param",
+    "invalid signature",
+    "invalid public key",
+    "invalid base58",
+    "not found",
+    "unauthorized",
+    "forbidden",
+    "bad request"
+  ];
+  if (terminalPatterns.some((p) => msg.includes(p))) return false;
+  return true;
+};
 var withRetry2 = async (fn) => {
   let lastError;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -28868,9 +28886,12 @@ var withRetry2 = async (fn) => {
       return await fn();
     } catch (error) {
       lastError = error;
-      const backoff = INITIAL_BACKOFF * Math.pow(2, attempt);
-      console.warn(`Attempt ${attempt + 1} failed. Retrying in ${backoff}ms...`);
-      await new Promise((resolve5) => setTimeout(resolve5, backoff));
+      if (!isRetryableError(error)) throw error;
+      if (attempt < MAX_RETRIES - 1) {
+        const backoff = INITIAL_BACKOFF * Math.pow(2, attempt);
+        console.warn(`Attempt ${attempt + 1} failed. Retrying in ${backoff}ms...`);
+        await new Promise((resolve5) => setTimeout(resolve5, backoff));
+      }
     }
   }
   throw lastError;
@@ -28885,7 +28906,7 @@ var fetchTransaction = async (signature, network = "devnet") => {
       commitment: "confirmed"
     })
   );
-  if (!tx || signature === "invalidSignature1234567890abcdefghij") {
+  if (!tx) {
     throw new Error(`failed to get transaction: ${signature}`);
   }
   return {
@@ -28923,6 +28944,16 @@ var DEFAULT_TIMEOUT_MS = 9e4;
 var BASE64_LINE_REGEX = /^[A-Za-z0-9+/]+={0,2}$/;
 var MIN_BASE64_LEN = 100;
 var STDERR_TAIL_LINES = 20;
+var SECRET_ENV_PATTERN = /(API[_-]?KEY|APIKEY|SECRET|TOKEN|PASSWORD|PASSWD|CREDENTIAL|PRIVATE[_-]?KEY|ACCESS[_-]?KEY|SESSION|COOKIE|^AUTH|_AUTH|MNEMONIC|SEED_PHRASE)/i;
+function buildChildEnv(extra, inheritFullEnv = false) {
+  const base = { ...process.env };
+  if (!inheritFullEnv) {
+    for (const key of Object.keys(base)) {
+      if (SECRET_ENV_PATTERN.test(key)) delete base[key];
+    }
+  }
+  return { ...base, ...extra ?? {} };
+}
 function detectSourceKind(input) {
   if (!fs3.existsSync(input)) return null;
   const stat = fs3.statSync(input);
@@ -29010,7 +29041,8 @@ async function runSourceFile(rawInput, options = {}) {
   return new Promise((resolve5, reject) => {
     const child = (0, import_child_process.spawn)(cmd, args, {
       cwd,
-      env: { ...process.env, ...options.env },
+      // Secret-bearing env vars are stripped by default (HIGH-02).
+      env: buildChildEnv(options.env, options.inheritFullEnv),
       stdio: ["ignore", "pipe", "pipe"],
       shell: false,
       windowsHide: true
@@ -29289,6 +29321,7 @@ async function simulateTransactionInput(rawInput, options = {}) {
     }
     const result = await runSourceFile(rawInput, {
       timeoutMs: options.execTimeoutMs,
+      inheritFullEnv: options.inheritFullEnv,
       onProgress: options.onRunnerProgress
     });
     runnerMeta = result.meta;
@@ -29701,6 +29734,9 @@ async function callGroq(payload, apiKey, model, signal) {
 // ../services/src/mcp/client.ts
 var DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-5";
 var DEFAULT_GROQ_MODEL = "llama-3.3-70b-versatile";
+function sanitizeSuggestion(s) {
+  return s.replace(/\x1b[@-_][0-?]*[ -/]*[@-~]?/g, "").replace(/\x1b[@-~]/g, "").replace(/[\x00-\x1f\x7f-\x9f]/g, " ").replace(/ {2,}/g, " ").trim();
+}
 function validateMcpEndpoint(raw) {
   let parsed;
   try {
@@ -29760,7 +29796,7 @@ async function callProvider(fn) {
   try {
     const result = await fn(controller.signal);
     if (result.degraded) warnDegraded(result);
-    return { suggestions: result.suggestions, source: "mcp" };
+    return { suggestions: result.suggestions.map(sanitizeSuggestion), source: "mcp" };
   } finally {
     clearTimeout(timeoutId);
   }
@@ -29784,7 +29820,7 @@ async function callMcpEndpoint(url, payload) {
         return { suggestions: [], source: "mcp" };
       }
       const data = await response.json();
-      const suggestions = Array.isArray(data.suggestions) ? data.suggestions.filter((s) => typeof s === "string").map((s) => s.slice(0, 500)) : [];
+      const suggestions = Array.isArray(data.suggestions) ? data.suggestions.filter((s) => typeof s === "string").map((s) => sanitizeSuggestion(s.slice(0, 500))) : [];
       return { suggestions, source: "mcp" };
     } catch (error) {
       if (retryCount < 1) return attempt(retryCount + 1);
@@ -32075,12 +32111,17 @@ function printSimulationBanner(meta) {
   }
   console.log(sep);
 }
-function printExecWarning(input, kind) {
+function printExecWarning(input, kind, inheritEnv) {
   const sep = import_chalk7.default.yellow("\u2500".repeat(64));
   console.log("");
   console.log(sep);
   console.log(import_chalk7.default.yellow.bold("  EXECUTING USER CODE"));
   console.log(import_chalk7.default.yellow(`  ${kind}: ${input}`));
+  console.log(
+    import_chalk7.default.dim(
+      inheritEnv ? "  env: FULL inheritance (--inherit-env) \u2014 your API keys are visible to this file" : "  env: secrets stripped (default) \u2014 pass --inherit-env to share them"
+    )
+  );
   console.log(import_chalk7.default.dim("  (use --no-exec to refuse running source files)"));
   console.log(sep);
 }
@@ -32100,6 +32141,10 @@ var registerSimulateCommand = (program3) => {
   program3.command("simulate <input>").description(
     "Simulate a Solana transaction that has not been broadcast yet, and produce the same insight panel as `opendev tx`.\n\n  <input> auto-detects:\n    \u2022 base64 transaction blob\n    \u2022 .b64 / .json file containing the blob\n    \u2022 .ts / .js / .mjs / .cjs source file that prints the base64 tx on stdout\n    \u2022 .rs source file or Rust project directory (Cargo.toml) \u2014 runner cargo run --release\n\n  For confirmed on-chain transactions use `opendev tx <signature>` instead."
   ).option("--network <name>", "Solana network: mainnet or devnet (default: mainnet)", "mainnet").option("--rpc <url>", "Custom RPC URL (e.g. http://localhost:8899 for surfpool local)").option("--json", "Output results in structured JSON format", false).option("--csv", "Output a single CSV row (with header) for BI tools", false).option("--output <path>", "Write JSON/CSV output to file instead of stdout").option("--no-cache", "Skip IDL cache and force network re-fetch").option("--verbose", "Show detailed timing for each pipeline stage").option("--no-replace-blockhash", "Do not replace recent blockhash on simulation").option("--sig-verify", "Verify signatures during simulation", false).option("--no-exec", "Refuse to execute source files (.rs/.ts/.js)").option(
+    "--inherit-env",
+    "Pass your full environment (including API keys) to the source-file runner. Off by default: secret-looking vars are stripped so the executed file cannot read and exfiltrate your stored credentials.",
+    false
+  ).option(
     "--exec-timeout <seconds>",
     "Max seconds to wait for the source-file runner (default 90)",
     (v) => parseInt(v, 10)
@@ -32167,7 +32212,7 @@ Error: ${msg}`));
       return;
     }
     if (isSourceKind && !isMachineOutput) {
-      printExecWarning(input, detectedKind);
+      printExecWarning(input, detectedKind, options.inheritEnv === true);
     }
     const execTimeoutMs = typeof options.execTimeout === "number" && !isNaN(options.execTimeout) ? options.execTimeout * 1e3 : void 0;
     const timings = [];
@@ -32182,6 +32227,7 @@ Error: ${msg}`));
         replaceRecentBlockhash: options.replaceBlockhash !== false,
         sigVerify: options.sigVerify === true,
         allowExec,
+        inheritFullEnv: options.inheritEnv === true,
         execTimeoutMs,
         onRunnerProgress: !isMachineOutput && verbose ? (line2, stream) => {
           spinner.text = stream === "stderr" ? import_chalk7.default.cyan("Runner: ") + import_chalk7.default.dim(line2.slice(0, 80)) : import_chalk7.default.cyan("Runner stdout: ") + import_chalk7.default.dim(line2.slice(0, 80));

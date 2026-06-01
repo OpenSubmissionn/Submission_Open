@@ -8,7 +8,11 @@ on:
 
 jobs:
   claude:
-    if: contains(github.event.comment.body, '@claude')
+    # HIGH-03: require @claude AND a repo-trusted author. A bare substring gate
+    # let any external commenter trigger this write-scoped job.
+    if: |
+      contains(github.event.comment.body, '@claude') &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
     runs-on: ubuntu-latest
     permissions:
       contents: write

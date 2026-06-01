@@ -18,8 +18,9 @@ export const fetchTransaction = async (
     })
   );
 
-  // This check is crucial for the "invalid signature" test to pass
-  if (!tx || signature === 'invalidSignature1234567890abcdefghij') {
+  // A null result means the RPC has no record of this signature (not found,
+  // not yet confirmed, or simply invalid). Surface it as a clean error.
+  if (!tx) {
     throw new Error(`failed to get transaction: ${signature}`);
   }
 

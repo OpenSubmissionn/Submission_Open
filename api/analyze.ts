@@ -25,10 +25,36 @@ const SIGNATURE_REGEX = /^[1-9A-HJ-NP-Za-km-z]{87,88}$/;
 // stopgap we chose; promote to Upstash/Vercel KV when actual abuse warrants.
 const ANALYZE_LIMIT = { windowMs: 60_000, max: 30 } as const;
 
+function firstHeader(v: string | string[] | undefined): string | undefined {
+  if (!v) return undefined;
+  const s = Array.isArray(v) ? v[0] : v;
+  return s?.split(',')[0]?.trim() || undefined;
+}
+
+// Resolve the client IP for rate-limiting WITHOUT trusting a spoofable
+// `X-Forwarded-For` (HIGH-01). The previous implementation read the left-most
+// XFF entry, which is fully attacker-controlled — rotating it handed the caller
+// a fresh rate-limit bucket on every request and defeated the throttle.
+//
+//   1. On Vercel, the edge sets `x-vercel-forwarded-for` to the true client IP
+//      and strips any client-supplied copy, so it's trustworthy.
+//   2. Self-hosted behind N proxies you control: set TRUSTED_PROXY_DEPTH=N and
+//      we take the Nth-from-the-right XFF entry (the hop your edge appended).
+//   3. Default (depth 0): ignore XFF entirely and use the TCP peer address,
+//      which a remote attacker cannot forge.
 function readClientIp(req: VercelRequest): string {
-  const xff = req.headers['x-forwarded-for'];
-  const xffStr = Array.isArray(xff) ? xff[0] : xff;
-  if (xffStr) return xffStr.split(',')[0]?.trim() || 'unknown';
+  const vercelIp = firstHeader(req.headers['x-vercel-forwarded-for']);
+  if (vercelIp) return vercelIp;
+
+  const depth = Number.parseInt(process.env.TRUSTED_PROXY_DEPTH ?? '0', 10);
+  if (Number.isFinite(depth) && depth > 0) {
+    const xff = req.headers['x-forwarded-for'];
+    const list = (Array.isArray(xff) ? xff.join(',') : (xff ?? ''))
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (list.length >= depth) return list[list.length - depth] || 'unknown';
+  }
   return (req.socket as any)?.remoteAddress ?? 'unknown';
 }
 

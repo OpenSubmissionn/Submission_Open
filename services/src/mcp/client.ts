@@ -90,6 +90,28 @@ const DEFAULT_ANTHROPIC_MODEL = 'claude-sonnet-4-5';
 const DEFAULT_GROQ_MODEL = 'llama-3.3-70b-versatile';
 
 /**
+ * Strip ANSI escape sequences and C0/C1 control characters from a model- or
+ * endpoint-supplied suggestion before it reaches a consumer (MED-06). The web
+ * UI already HTML-escapes these strings, but the CLI prints them straight to a
+ * terminal; without this an LLM (or a compromised MCP_ENDPOINT_URL) could embed
+ * raw escape codes to rewrite the terminal, spoof output, or trigger
+ * title/clipboard escapes. Control chars are collapsed to single spaces.
+ */
+export function sanitizeSuggestion(s: string): string {
+  return s
+    // ANSI/VT escape sequences: ESC + introducer + params + final byte.
+    // eslint-disable-next-line no-control-regex
+    .replace(/\x1b[@-_][0-?]*[ -/]*[@-~]?/g, '')
+    // eslint-disable-next-line no-control-regex
+    .replace(/\x1b[@-~]/g, '')
+    // Remaining C0/C1 control chars (incl. lone ESC, CR, LF, TAB, DEL).
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\x00-\x1f\x7f-\x9f]/g, ' ')
+    .replace(/ {2,}/g, ' ')
+    .trim();
+}
+
+/**
  * Validate a user-supplied MCP_ENDPOINT_URL. Rules:
  *   - Must be a syntactically valid URL.
  *   - Must use `https:`. Plain http is rejected so credentials in payload
@@ -173,7 +195,7 @@ async function callProvider(
   try {
     const result = await fn(controller.signal);
     if (result.degraded) warnDegraded(result);
-    return { suggestions: result.suggestions, source: 'mcp' };
+    return { suggestions: result.suggestions.map(sanitizeSuggestion), source: 'mcp' };
   } finally {
     clearTimeout(timeoutId);
   }
@@ -205,7 +227,7 @@ async function callMcpEndpoint(url: string, payload: MCPPayload): Promise<MCPIns
       const suggestions = Array.isArray(data.suggestions)
         ? data.suggestions
             .filter((s): s is string => typeof s === 'string')
-            .map((s) => s.slice(0, 500))
+            .map((s) => sanitizeSuggestion(s.slice(0, 500)))
         : [];
       return { suggestions, source: 'mcp' };
     } catch (error) {

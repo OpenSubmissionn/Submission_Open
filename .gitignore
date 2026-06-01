@@ -58,8 +58,9 @@ test-keypair.json
 .gitmodules
 CLAUDE.md
 CLAUDE.local.md
-.github/workflows/claude-code.yml
-.github/workflows/claude.yml
+# NOTE: .github/workflows/claude*.yml are intentionally NOT ignored. They are
+# privileged (write-scoped, secret-bearing) workflows that must stay visible in
+# review so changes to their trigger gating are always diffed (HIGH-03).
 .playwright-mcp/
 
 # IDE
