@@ -1,0 +1,45 @@
+name: Verify committed CLI bundle
+
+# MED-01: cli/dist/open.js is committed and is what users actually run via
+# `npm install -g github:...`. A committed build artifact can silently diverge
+# from source (accidentally or maliciously) and reviewers read src/, not a
+# bundled file. This job rebuilds the CLI from source on every PR and fails if
+# the regenerated bundle differs from what's committed — proving the shipped
+# artifact matches the audited source.
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+
+jobs:
+  verify-dist:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Rebuild CLI bundle
+        run: npm run build --workspace cli
+
+      - name: Assert committed bundle matches source
+        run: |
+          # core.fileMode=false ignores the executable-bit difference between a
+          # Windows-committed bundle (100644) and the Linux build's shebang'd
+          # output (100755) — that's not source drift. CONTENT is what matters.
+          if ! git -c core.fileMode=false diff --quiet -- cli/dist; then
+            echo "::error::cli/dist content is out of sync with source. Run 'npm run build --workspace cli' and commit the result."
+            git -c core.fileMode=false --no-pager diff -- cli/dist
+            exit 1
+          fi
+          echo "cli/dist matches source."

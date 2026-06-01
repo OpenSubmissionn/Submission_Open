@@ -23,10 +23,23 @@ const MIN_BALANCE_FOR_TX = LAMPORTS_PER_SOL / 50;
 function loadOrCreateKeypair(): { kp: Keypair; isNew: boolean } {
   if (fs.existsSync(KEYPAIR_PATH)) {
     const secret = JSON.parse(fs.readFileSync(KEYPAIR_PATH, 'utf-8'));
+    // Best-effort: re-tighten perms on an existing keypair in case it was
+    // created by an older version of this script that used the default umask.
+    try {
+      fs.chmodSync(KEYPAIR_PATH, 0o600);
+    } catch {
+      /* chmod is a no-op on Windows; ignore. */
+    }
     return { kp: Keypair.fromSecretKey(Uint8Array.from(secret)), isNew: false };
   }
   const kp = Keypair.generate();
-  fs.writeFileSync(KEYPAIR_PATH, JSON.stringify(Array.from(kp.secretKey)), 'utf-8');
+  // MED-06: write the keypair with mode 0600 so it's only readable by the
+  // file owner. Default umask on Linux/macOS produces 0644 (world-readable)
+  // which is the wrong default for a secret key, even a devnet one.
+  fs.writeFileSync(KEYPAIR_PATH, JSON.stringify(Array.from(kp.secretKey)), {
+    encoding: 'utf-8',
+    mode: 0o600,
+  });
   return { kp, isNew: true };
 }
 

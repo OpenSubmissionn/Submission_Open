@@ -53,6 +53,13 @@ export interface SimulateOptions {
   sigVerify?: boolean;
   allowExec?: boolean;
   execTimeoutMs?: number;
+  /**
+   * Inherit the full parent environment into the source-file runner. Defaults
+   * to false — secret-looking vars are stripped so user code can't exfiltrate
+   * stored API keys (HIGH-02). Only set this when the source legitimately needs
+   * an inherited secret (e.g. a private RPC URL in an env var).
+   */
+  inheritFullEnv?: boolean;
   onRunnerProgress?: RunSourceOptions['onProgress'];
 }
 
@@ -268,6 +275,7 @@ export async function simulateTransactionInput(
     }
     const result = await runSourceFile(rawInput, {
       timeoutMs: options.execTimeoutMs,
+      inheritFullEnv: options.inheritFullEnv,
       onProgress: options.onRunnerProgress,
     });
     runnerMeta = result.meta;

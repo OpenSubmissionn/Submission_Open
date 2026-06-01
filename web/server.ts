@@ -11,6 +11,7 @@
 import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import {
@@ -28,10 +29,39 @@ import {
   type ParsedLogs,
 } from '../services/src/index.js';
 import { getProgramNameSync } from '../services/src/solana/programs.js';
+import {
+  rateLimit,
+  type RateLimitDecision,
+  getAnalyzeCached,
+  setAnalyzeCached,
+} from './rate-limit.js';
+
+// Re-export the rate-limit + cache primitives so the Vercel handlers in
+// api/*.ts can share the same in-process counters as the dev server.
+export { rateLimit, getAnalyzeCached, setAnalyzeCached };
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT ?? '3344', 10);
 const WEB_DIR = __dirname;
+
+// Base58 charset Solana uses for signatures (no 0, O, I, l). Validating the
+// charset at the HTTP boundary prevents log-injection via newlines/control
+// chars and rejects garbage before any RPC fan-out — see services/src/solana
+// for the downstream fetch path.
+const SIGNATURE_REGEX = /^[1-9A-HJ-NP-Za-km-z]{87,88}$/;
+
+// Caps the in-memory accumulation in the POST body handler. 64 KiB is far
+// more than the JSON body we expect ({ signature, network } is ~150 bytes),
+// but generous enough to absorb future fields without immediate re-tuning.
+const MAX_REQUEST_BYTES = 64 * 1024;
+
+// Per-route rate-limit budgets. Numbers picked from realistic human use:
+// a developer pasting signatures one at a time tops out around 1/sec;
+// 30/min leaves headroom while still pricing automated abuse out of the
+// /api/analyze fan-out (RPC + AI provider). latest-tx is cheaper (one
+// RPC call, no AI) so its budget is higher.
+export const RATE_LIMIT_ANALYZE = { windowMs: 60_000, max: 30 } as const;
+export const RATE_LIMIT_LATEST = { windowMs: 60_000, max: 60 } as const;
 
 // ───────────────────────────────────────────────────────────────────────────
 // Program name resolution (mirrors cli/src/renderers/terminal/renderer.ts)
@@ -842,7 +872,11 @@ function buildInstructionSummaries(
   const accountKeys: string[] = bundle?.accountKeys ?? [];
   const rawInstructions: any[] = Array.isArray(message?.instructions) ? message.instructions : [];
 
-  if (process.env.DEBUG_IXS === '1') {
+  // Verbose instruction dump for local debugging only — never enable in
+  // production. A misconfigured deploy with DEBUG_IXS=1 would stream raw
+  // instruction blobs to platform logs (Vercel/Datadog) on every request,
+  // amplifying the impact of any other info-disclosure path.
+  if (process.env.DEBUG_IXS === '1' && process.env.NODE_ENV !== 'production') {
     console.log('[ixs] count:', rawInstructions.length);
     rawInstructions.forEach((ix, i) =>
       console.log('  raw[' + i + ']:', JSON.stringify(ix).slice(0, 200))
@@ -1610,37 +1644,129 @@ const MIME: Record<string, string> = {
   '.ico': 'image/x-icon',
 };
 
+// CORS allowlist. The demo originally shipped Access-Control-Allow-Origin: *
+// because it's a public read-only analyzer. We keep that as the dev default
+// so local pages can hit `npm run web` from any port, but production
+// deployments are expected to set ALLOWED_ORIGINS to a comma-separated list
+// (e.g. `https://opendev.example,https://docs.opendev.example`). Requests
+// from origins outside that list still get a CORS-less response — the
+// endpoint isn't blocked, but browsers won't read it cross-origin, which
+// removes the "drive-by load generator" amplification from MED-01.
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? '*')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+function pickAllowedOrigin(reqOrigin: string | undefined): string | null {
+  if (ALLOWED_ORIGINS.length === 1 && ALLOWED_ORIGINS[0] === '*') return '*';
+  if (!reqOrigin) return null;
+  return ALLOWED_ORIGINS.includes(reqOrigin) ? reqOrigin : null;
+}
+
+// Defence-in-depth headers applied to every response. CSP allows inline
+// scripts/styles because both web.html and landing.html still embed their
+// scripts/styles inline — moving to nonces is a follow-up. Even with
+// 'unsafe-inline' allowed, the policy still blocks remote scripts, object
+// embeds, plugins, and framing — i.e. nearly every XSS escalation vector
+// short of an inline payload reaching the page.
+const SECURITY_HEADERS = {
+  'Content-Security-Policy':
+    "default-src 'self'; " +
+    "script-src 'self' 'unsafe-inline'; " +
+    "style-src 'self' 'unsafe-inline'; " +
+    "img-src 'self' data:; " +
+    "font-src 'self' data:; " +
+    "connect-src 'self'; " +
+    "object-src 'none'; " +
+    "base-uri 'none'; " +
+    "frame-ancestors 'none'; " +
+    'upgrade-insecure-requests',
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'X-Frame-Options': 'DENY',
+  // Disable a long list of legacy/PII features no demo page needs.
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=()',
+} as const;
+
 function send(
   res: http.ServerResponse,
   status: number,
   body: string | Buffer,
   headers: Record<string, string> = {}
 ) {
+  // Merge in any rate-limit headers stashed by enforceRateLimit so every
+  // response (allowed or not) carries the canonical X-RateLimit-* trio.
+  const rateHeaders = (res as any)._rateHeaders ?? {};
+  // Allowed CORS origin is picked per-request and stashed by the dispatcher
+  // before send() runs. Defaults to '*' for the dev server, locked down via
+  // ALLOWED_ORIGINS in production.
+  const corsOrigin = (res as any)._corsOrigin as string | null | undefined;
+  const corsHeaders: Record<string, string> = corsOrigin
+    ? {
+        'Access-Control-Allow-Origin': corsOrigin,
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+        Vary: 'Origin',
+      }
+    : { Vary: 'Origin' };
   res.writeHead(status, {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    ...corsHeaders,
+    ...SECURITY_HEADERS,
+    ...rateHeaders,
     ...headers,
   });
   res.end(body);
 }
 
 async function serveStatic(req: http.IncomingMessage, res: http.ServerResponse, urlPath: string) {
-  const safe = urlPath.replace(/\.\.+/g, '').replace(/^\/+/, '');
-  const file = safe === '' ? 'landing.html' : safe;
-  const full = path.join(WEB_DIR, file);
+  // Hardened path resolution (MED-02):
+  //   1. Decode percent-encoded bytes once so `%2e%2e%2fetc%2fpasswd`
+  //      surfaces as `../etc/passwd` and we can reject it.
+  //   2. Strip a leading slash, then resolve under WEB_DIR.
+  //   3. Reject anything whose resolved path escapes WEB_DIR — handles
+  //      `../`, `..\\`, absolute paths, symlink shenanigans (best-effort).
+  //   4. Only serve extensions we know how to label with a MIME type.
+  //      Eliminates the "serve any file we can read" property entirely.
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(urlPath);
+  } catch {
+    return send(res, 400, 'bad request', { 'Content-Type': 'text/plain' });
+  }
+  // Disallow NUL bytes outright — some FS layers truncate at NUL which lets
+  // an attacker bypass the extension allowlist (`evil\0.html`).
+  if (decoded.includes('\0')) {
+    return send(res, 400, 'bad request', { 'Content-Type': 'text/plain' });
+  }
+  const stripped = decoded.replace(/^\/+/, '');
+  const file = stripped === '' ? 'landing.html' : stripped;
+  const full = path.resolve(WEB_DIR, file);
+  const webDirWithSep = WEB_DIR.endsWith(path.sep) ? WEB_DIR : WEB_DIR + path.sep;
+  if (full !== WEB_DIR && !full.startsWith(webDirWithSep)) {
+    return send(res, 403, 'forbidden', { 'Content-Type': 'text/plain' });
+  }
+  const ext = path.extname(full).toLowerCase();
+  if (!MIME[ext]) {
+    return send(res, 404, 'not found', { 'Content-Type': 'text/plain' });
+  }
 
   try {
     const data = await fs.readFile(full);
-    const ext = path.extname(full).toLowerCase();
-    send(res, 200, data, { 'Content-Type': MIME[ext] ?? 'application/octet-stream' });
+    send(res, 200, data, { 'Content-Type': MIME[ext] });
   } catch {
-    send(res, 404, `not found: ${file}`, { 'Content-Type': 'text/plain' });
+    send(res, 404, 'not found', { 'Content-Type': 'text/plain' });
   }
 }
 
 const server = http.createServer(async (req, res) => {
   if (!req.url) return send(res, 400, 'bad request');
+
+  // Decide which CORS origin (if any) we're going to echo back. Stash on
+  // res so send() picks it up uniformly for both API responses and OPTIONS
+  // preflights. Cross-origin requests outside the allowlist still get a
+  // response, but without ACAO — the browser blocks the read.
+  const reqOrigin = (req.headers.origin as string | undefined) ?? undefined;
+  (res as any)._corsOrigin = pickAllowedOrigin(reqOrigin);
 
   if (req.method === 'OPTIONS') return send(res, 204, '');
 
@@ -1657,34 +1783,79 @@ const server = http.createServer(async (req, res) => {
   // mainnet program (Jupiter v6). Lets the demo's "live mainnet sample" button
   // pull a fresh, real transaction on every click instead of using a stale one.
   if (url.pathname === '/api/latest-tx') {
+    const limited = enforceRateLimit(req, res, 'latest-tx', RATE_LIMIT_LATEST);
+    if (limited) return;
     try {
       const result = await getLatestTx();
       return send(res, 200, JSON.stringify(result), {
         'Content-Type': 'application/json',
       });
     } catch (e: any) {
-      console.error('[latest-tx] error:', e?.message ?? e);
-      return send(res, 500, JSON.stringify({ error: e?.message ?? String(e) }), {
-        'Content-Type': 'application/json',
-      });
+      // Generic error to client — the upstream message could leak the
+      // operator's Helius RPC hostname or rate-limit text.
+      const requestId = randomUUID();
+      console.error(`[latest-tx] error rid=${requestId}:`, e);
+      return send(
+        res,
+        500,
+        JSON.stringify({ error: 'latest-tx lookup failed', requestId }),
+        { 'Content-Type': 'application/json' }
+      );
     }
   }
 
   // analyze endpoint — accepts GET ?signature=...&network=... or POST {signature, network}
   if (url.pathname === '/api/analyze') {
+    const limited = enforceRateLimit(req, res, 'analyze', RATE_LIMIT_ANALYZE);
+    if (limited) return;
     let signature = url.searchParams.get('signature') ?? '';
     let network = (url.searchParams.get('network') ?? 'mainnet') as 'mainnet' | 'devnet';
 
     if (req.method === 'POST') {
-      const body = await new Promise<string>((resolve) => {
+      // Bound the in-memory accumulation so a hostile POST with `Content-Length`
+      // pointing at gigabytes can't OOM the dev server. On overflow we send a
+      // clean 413, then pause the request stream so we stop reading but the
+      // response can still flush. `Connection: close` ensures the socket is
+      // released after the response — we don't try to keep-alive a connection
+      // whose upstream body we're abandoning.
+      let alreadyResponded = false;
+      const body = await new Promise<string | null>((resolve) => {
         let buf = '';
-        req.on('data', (c) => (buf += c));
-        req.on('end', () => resolve(buf));
+        let total = 0;
+        let aborted = false;
+        req.on('data', (c: Buffer) => {
+          if (aborted) return;
+          total += c.length;
+          if (total > MAX_REQUEST_BYTES) {
+            aborted = true;
+            req.pause();
+            alreadyResponded = true;
+            send(res, 413, JSON.stringify({ error: 'request body too large' }), {
+              'Content-Type': 'application/json',
+              Connection: 'close',
+            });
+            resolve(null);
+            return;
+          }
+          buf += c;
+        });
+        req.on('end', () => {
+          if (!aborted) resolve(buf);
+        });
+        req.on('error', () => {
+          if (!aborted) resolve(null);
+        });
       });
+      if (body === null) {
+        if (alreadyResponded) return; // 413 already flushed above
+        return send(res, 413, JSON.stringify({ error: 'request body too large' }), {
+          'Content-Type': 'application/json',
+        });
+      }
       try {
         const parsed = JSON.parse(body);
-        signature = parsed.signature ?? signature;
-        network = parsed.network ?? network;
+        if (typeof parsed.signature === 'string') signature = parsed.signature;
+        if (typeof parsed.network === 'string') network = parsed.network as typeof network;
       } catch {
         return send(res, 400, JSON.stringify({ error: 'invalid JSON body' }), {
           'Content-Type': 'application/json',
@@ -1692,7 +1863,7 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
-    if (!signature || ![87, 88].includes(signature.length)) {
+    if (!SIGNATURE_REGEX.test(signature)) {
       return send(res, 400, JSON.stringify({ error: 'invalid signature' }), {
         'Content-Type': 'application/json',
       });
@@ -1703,19 +1874,40 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    // Confirmed Solana transactions are immutable, so analyze() is a pure
+    // function of (signature, network). Cache the response so repeated hits
+    // (whether organic refreshes or hostile fan-out) become cheap. This is
+    // the main mitigation for HIGH-01 cost amplification — rate limiting
+    // alone still allows N×30/min cost; the cache turns the second through
+    // Nth hit into zero RPC / zero AI cost.
+    const cached = getAnalyzeCached<any>(signature, network);
+    if (cached) {
+      return send(res, 200, JSON.stringify({ ...cached, tookMs: 0, fromCache: true }), {
+        'Content-Type': 'application/json',
+      });
+    }
+
     try {
       const t0 = Date.now();
       const result = await analyze(signature, network);
       const tookMs = Date.now() - t0;
       console.log(`[analyze] ${signature.slice(0, 8)}…  ${tookMs}ms`);
+      setAnalyzeCached(signature, network, result);
       return send(res, 200, JSON.stringify({ ...result, tookMs }), {
         'Content-Type': 'application/json',
       });
     } catch (e: any) {
-      console.error('[analyze] error:', e?.message ?? e);
-      return send(res, 500, JSON.stringify({ error: e?.message ?? String(e) }), {
-        'Content-Type': 'application/json',
-      });
+      // Generic error to client + correlation id. Full detail server-side.
+      // Previously the upstream RPC error string (which can include the
+      // Helius URL or auth-related hints) was echoed verbatim.
+      const requestId = randomUUID();
+      console.error(`[analyze] error rid=${requestId}:`, e);
+      return send(
+        res,
+        500,
+        JSON.stringify({ error: 'analysis failed', requestId }),
+        { 'Content-Type': 'application/json' }
+      );
     }
   }
 
@@ -1726,6 +1918,83 @@ const server = http.createServer(async (req, res) => {
 
   send(res, 405, 'method not allowed');
 });
+
+// Best-effort client IP. Vercel sets `x-forwarded-for` at the edge; behind
+// any other proxy it's the convention too. Falls back to the raw socket
+// address for direct connections (= localhost in dev).
+function firstHeader(v: string | string[] | undefined): string | undefined {
+  if (!v) return undefined;
+  const s = Array.isArray(v) ? v[0] : v;
+  return s?.split(',')[0]?.trim() || undefined;
+}
+
+// Resolve the client IP for rate-limiting WITHOUT trusting a spoofable
+// `X-Forwarded-For` (HIGH-01). Reading the left-most XFF entry let any caller
+// rotate the header to mint unlimited rate-limit buckets. Trust order:
+//   1. `x-vercel-forwarded-for` — set by Vercel's edge to the real client IP
+//      and stripped of any client-supplied copy.
+//   2. `x-forwarded-for` ONLY when TRUSTED_PROXY_DEPTH=N (you run N proxies);
+//      we take the Nth-from-the-right entry your edge appended.
+//   3. Otherwise the raw TCP peer (localhost in dev), which can't be forged.
+function readClientIp(req: http.IncomingMessage): string | undefined {
+  const vercelIp = firstHeader(req.headers['x-vercel-forwarded-for']);
+  if (vercelIp) return vercelIp;
+
+  const depth = Number.parseInt(process.env.TRUSTED_PROXY_DEPTH ?? '0', 10);
+  if (Number.isFinite(depth) && depth > 0) {
+    const xff = req.headers['x-forwarded-for'];
+    const list = (Array.isArray(xff) ? xff.join(',') : (xff ?? ''))
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (list.length >= depth) return list[list.length - depth];
+  }
+  return req.socket.remoteAddress ?? undefined;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Rate-limit enforcement helper.
+//
+// Returns `true` when the request was blocked (and the response was
+// already written), so the caller can early-return without sending
+// anything else. Returns `false` when the request is allowed through.
+//
+// Sets standard rate-limit headers on every response (allowed or blocked)
+// so clients can self-throttle without having to read 429s.
+// ─────────────────────────────────────────────────────────────
+function enforceRateLimit(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  route: string,
+  config: { windowMs: number; max: number }
+): boolean {
+  // Key on best-effort IP. If we can't identify the caller at all we fall
+  // back to a shared bucket — same effect as banning anonymous abuse.
+  const ip = readClientIp(req) ?? 'unknown';
+  const decision: RateLimitDecision = rateLimit(`${route}:${ip}`, config);
+  const baseHeaders: Record<string, string> = {
+    'X-RateLimit-Limit': String(config.max),
+    'X-RateLimit-Remaining': String(decision.remaining),
+    'X-RateLimit-Reset': String(Math.floor(decision.resetAt / 1000)),
+  };
+  if (!decision.allowed) {
+    send(
+      res,
+      429,
+      JSON.stringify({ error: 'rate limit exceeded', retryAfterSec: decision.retryAfterSec }),
+      {
+        ...baseHeaders,
+        'Retry-After': String(decision.retryAfterSec),
+        'Content-Type': 'application/json',
+      }
+    );
+    return true;
+  }
+  // Attach the headers to the downstream response by stashing them on the
+  // response object — the `send()` helper merges them in before writeHead.
+  (res as any)._rateHeaders = baseHeaders;
+  return false;
+}
 
 // Only start the long-running HTTP server when this file is executed directly
 // (`tsx web/server.ts` for local dev). When the file is imported as a module

@@ -36,8 +36,46 @@ export const SUPPORTED_PROVIDERS: readonly Provider[] = ['groq', 'anthropic'] as
 const DEFAULT_DIR = path.join(os.homedir(), '.opendev');
 const DEFAULT_FILE = path.join(DEFAULT_DIR, 'credentials.json');
 
+/**
+ * Resolve the credentials file path, applying safety guards on the
+ * env-supplied override (MED-07).
+ *
+ * Rules for OPENDEV_CREDS_PATH:
+ *   - Must resolve to a path under os.homedir() (no /etc, /var, /tmp).
+ *   - If the file already exists, it must not be a symlink — refuse to
+ *     follow a symlink target the user didn't pick deliberately.
+ * Violations fall back to DEFAULT_FILE with a warning so a hostile
+ * environment can't silently redirect credential reads/writes.
+ */
 export function credentialsPath(): string {
-  return process.env.OPENDEV_CREDS_PATH || DEFAULT_FILE;
+  const override = process.env.OPENDEV_CREDS_PATH;
+  if (!override) return DEFAULT_FILE;
+
+  const resolved = path.resolve(override);
+  const home = path.resolve(os.homedir());
+  // path.relative returning an absolute path or one starting with '..'
+  // means the override escapes $HOME. Reject it.
+  const rel = path.relative(home, resolved);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) {
+    console.warn(
+      `[opendev] OPENDEV_CREDS_PATH=${override} is outside $HOME — ignoring and using ${DEFAULT_FILE}.`
+    );
+    return DEFAULT_FILE;
+  }
+  // If the target exists, reject symlinks. A hostile shell init could point
+  // a symlink at /etc/sudoers or similar; refuse to follow it.
+  try {
+    const st = fs.lstatSync(resolved);
+    if (st.isSymbolicLink()) {
+      console.warn(
+        `[opendev] OPENDEV_CREDS_PATH=${override} is a symlink — ignoring and using ${DEFAULT_FILE}.`
+      );
+      return DEFAULT_FILE;
+    }
+  } catch {
+    // ENOENT is fine — file may not exist yet.
+  }
+  return resolved;
 }
 
 export function isProvider(value: string): value is Provider {

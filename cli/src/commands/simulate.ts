@@ -55,12 +55,19 @@ function printSimulationBanner(meta: SimulationMeta): void {
   console.log(sep);
 }
 
-function printExecWarning(input: string, kind: SimulationInputKind): void {
+function printExecWarning(input: string, kind: SimulationInputKind, inheritEnv: boolean): void {
   const sep = chalk.yellow('─'.repeat(64));
   console.log('');
   console.log(sep);
   console.log(chalk.yellow.bold('  EXECUTING USER CODE'));
   console.log(chalk.yellow(`  ${kind}: ${input}`));
+  console.log(
+    chalk.dim(
+      inheritEnv
+        ? '  env: FULL inheritance (--inherit-env) — your API keys are visible to this file'
+        : '  env: secrets stripped (default) — pass --inherit-env to share them'
+    )
+  );
   console.log(chalk.dim('  (use --no-exec to refuse running source files)'));
   console.log(sep);
 }
@@ -94,6 +101,13 @@ export const registerSimulateCommand = (program: Command) => {
     .option('--no-replace-blockhash', 'Do not replace recent blockhash on simulation')
     .option('--sig-verify', 'Verify signatures during simulation', false)
     .option('--no-exec', 'Refuse to execute source files (.rs/.ts/.js)')
+    .option(
+      '--inherit-env',
+      'Pass your full environment (including API keys) to the source-file runner. ' +
+        'Off by default: secret-looking vars are stripped so the executed file cannot ' +
+        'read and exfiltrate your stored credentials.',
+      false
+    )
     .option(
       '--exec-timeout <seconds>',
       'Max seconds to wait for the source-file runner (default 90)',
@@ -168,7 +182,7 @@ export const registerSimulateCommand = (program: Command) => {
         return;
       }
       if (isSourceKind && !isMachineOutput) {
-        printExecWarning(input, detectedKind);
+        printExecWarning(input, detectedKind, options.inheritEnv === true);
       }
 
       const execTimeoutMs =
@@ -191,6 +205,7 @@ export const registerSimulateCommand = (program: Command) => {
           replaceRecentBlockhash: options.replaceBlockhash !== false,
           sigVerify: options.sigVerify === true,
           allowExec,
+          inheritFullEnv: options.inheritEnv === true,
           execTimeoutMs,
           onRunnerProgress:
             !isMachineOutput && verbose
