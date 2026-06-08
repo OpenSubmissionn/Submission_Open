@@ -28,6 +28,13 @@ import {
   type ParsedLogs,
 } from '../services/src/index.js';
 import { getProgramNameSync } from '../services/src/solana/programs.js';
+import { trackEvent, type GeoHeaders } from './tracking.js';
+
+// Re-export so api/track.ts can pull this through the established
+// `web/server.js` barrel (same pattern as analyze / getLatestTx).
+// The read side (getStats) lives in a separate private repo so the
+// public deployment never exposes a way to read community data back out.
+export { trackEvent };
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT ?? '3344', 10);
@@ -1719,6 +1726,39 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // /api/track — POST { event_type, referrer? }
+  //
+  // Records a "transaction profiled" event. Geo comes from Vercel edge
+  // headers in production; in local dev those headers are absent so the
+  // row lands without country/city — fine for testing the wiring.
+  // ─────────────────────────────────────────────────────────────
+  if (url.pathname === '/api/track' && req.method === 'POST') {
+    try {
+      const body = await readJsonBody(req);
+      const geo = readGeoHeaders(req);
+      const clientIp = readClientIp(req);
+      await trackEvent(
+        {
+          event_type: 'tx_profiled',
+          referrer: typeof body.referrer === 'string' ? body.referrer : undefined,
+        },
+        geo,
+        clientIp
+      );
+      return send(res, 200, JSON.stringify({ ok: true }), {
+        'Content-Type': 'application/json',
+      });
+    } catch (e: any) {
+      console.error('[track] error:', e?.message ?? e);
+      // We never want a tracking failure to surface to the user — respond
+      // 200 either way. Errors are logged for ops to see.
+      return send(res, 200, JSON.stringify({ ok: false }), {
+        'Content-Type': 'application/json',
+      });
+    }
+  }
+
   // static files
   if (req.method === 'GET') {
     return serveStatic(req, res, url.pathname);
@@ -1726,6 +1766,49 @@ const server = http.createServer(async (req, res) => {
 
   send(res, 405, 'method not allowed');
 });
+
+// ─────────────────────────────────────────────────────────────
+// Request helpers used by /api/track
+// ─────────────────────────────────────────────────────────────
+
+async function readJsonBody(req: http.IncomingMessage): Promise<any> {
+  const buf = await new Promise<string>((resolve) => {
+    let s = '';
+    req.on('data', (c) => (s += c));
+    req.on('end', () => resolve(s));
+  });
+  if (!buf) return {};
+  try {
+    return JSON.parse(buf);
+  } catch {
+    return {};
+  }
+}
+
+function readGeoHeaders(req: http.IncomingMessage): GeoHeaders {
+  const h = (name: string) => {
+    const v = req.headers[name];
+    return Array.isArray(v) ? v[0] : v;
+  };
+  return {
+    country: h('x-vercel-ip-country'),
+    countryName: h('x-vercel-ip-country-region'), // present on Pro, harmless when absent
+    city: h('x-vercel-ip-city'),
+    region: h('x-vercel-ip-country-region'),
+    latitude: h('x-vercel-ip-latitude'),
+    longitude: h('x-vercel-ip-longitude'),
+  };
+}
+
+// Best-effort client IP. Vercel sets `x-forwarded-for` at the edge; behind
+// any other proxy it's the convention too. Falls back to the raw socket
+// address for direct connections (= localhost in dev).
+function readClientIp(req: http.IncomingMessage): string | undefined {
+  const xff = req.headers['x-forwarded-for'];
+  const xffStr = Array.isArray(xff) ? xff[0] : xff;
+  if (xffStr) return xffStr.split(',')[0]?.trim();
+  return req.socket.remoteAddress ?? undefined;
+}
 
 // Only start the long-running HTTP server when this file is executed directly
 // (`tsx web/server.ts` for local dev). When the file is imported as a module
@@ -1738,6 +1821,7 @@ if (isMainModule) {
     console.log(`  → http://localhost:${PORT}/landing.html`);
     console.log(`  → http://localhost:${PORT}/web.html`);
     console.log(`  → POST /api/analyze  { signature, network }`);
-    console.log(`  → GET  /api/latest-tx  (latest mainnet Jupiter v6 sig)\n`);
+    console.log(`  → GET  /api/latest-tx  (latest mainnet Jupiter v6 sig)`);
+    console.log(`  → POST /api/track     { event_type, referrer? } (community ingest)\n`);
   });
 }
