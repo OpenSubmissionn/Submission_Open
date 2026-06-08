@@ -28,11 +28,13 @@ import {
   type ParsedLogs,
 } from '../services/src/index.js';
 import { getProgramNameSync } from '../services/src/solana/programs.js';
-import { trackEvent, getStats, type GeoHeaders } from './tracking.js';
+import { trackEvent, type GeoHeaders } from './tracking.js';
 
-// Re-export so api/track.ts and api/stats.ts can pull these through the
-// established `web/server.js` barrel (same pattern as analyze / getLatestTx).
-export { trackEvent, getStats };
+// Re-export so api/track.ts can pull this through the established
+// `web/server.js` barrel (same pattern as analyze / getLatestTx).
+// The read side (getStats) lives in a separate private repo so the
+// public deployment never exposes a way to read community data back out.
+export { trackEvent };
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT ?? '3344', 10);
@@ -1757,27 +1759,6 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // /api/stats — GET
-  //
-  // Returns the full payload the dashboard renders. Cached 60s inside
-  // getStats() so a busy dashboard doesn't hammer npm / Supabase.
-  // ─────────────────────────────────────────────────────────────
-  if (url.pathname === '/api/stats') {
-    try {
-      const data = await getStats();
-      return send(res, 200, JSON.stringify(data), {
-        'Content-Type': 'application/json',
-        'Cache-Control': 'public, max-age=30, s-maxage=60',
-      });
-    } catch (e: any) {
-      console.error('[stats] error:', e?.message ?? e);
-      return send(res, 500, JSON.stringify({ error: e?.message ?? String(e) }), {
-        'Content-Type': 'application/json',
-      });
-    }
-  }
-
   // static files
   if (req.method === 'GET') {
     return serveStatic(req, res, url.pathname);
@@ -1841,7 +1822,6 @@ if (isMainModule) {
     console.log(`  → http://localhost:${PORT}/web.html`);
     console.log(`  → POST /api/analyze  { signature, network }`);
     console.log(`  → GET  /api/latest-tx  (latest mainnet Jupiter v6 sig)`);
-    console.log(`  → POST /api/track     { event_type, referrer? } (community dashboard)`);
-    console.log(`  → GET  /api/stats     (aggregated dashboard payload)\n`);
+    console.log(`  → POST /api/track     { event_type, referrer? } (community ingest)\n`);
   });
 }
