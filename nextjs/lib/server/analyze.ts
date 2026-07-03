@@ -1,18 +1,13 @@
 /**
- * Local dev server that serves the static landing/demo pages and exposes a
- * small JSON API on top of the existing analysis pipeline (services/src).
+ * API orchestration for the OPEN analyzer. Wraps the shared analysis engine
+ * (@open/services) and packages the result into the JSON shape the Next.js
+ * demo pages consume. Imported by the app/api/* route handlers.
  *
- * Run with:  npm run web
- *
- * The pipeline used here is the same as cli/src/commands/tx.ts — we just
- * package the result for the browser instead of rendering to a TUI.
+ * Relocated from web/server.ts during the Next.js migration; the standalone
+ * HTTP dev server and static-file serving were dropped.
  */
 
-import http from 'node:http';
-import fs from 'node:fs/promises';
-import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-
+import bs58 from 'bs58';
 import {
   fetchTransaction,
   parseLogsFromBundle,
@@ -23,15 +18,11 @@ import {
   analyzeTransaction,
   IdlCache,
   McpInsightProvider,
+  getProgramNameSync,
   type CPITree,
   type CPINode,
   type ParsedLogs,
-} from '../services/src/index.js';
-import { getProgramNameSync } from '../services/src/solana/programs.js';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PORT = parseInt(process.env.PORT ?? '3344', 10);
-const WEB_DIR = __dirname;
+} from '@open/services';
 
 // ───────────────────────────────────────────────────────────────────────────
 // Program name resolution (mirrors cli/src/renderers/terminal/renderer.ts)
@@ -439,8 +430,7 @@ function lamportsToSol(n: number | string | undefined | null): string {
 // summarizeInstruction route through the normal switch below.
 function decodeComputeBudgetData(dataBase58: string): { type: string; info: any } | null {
   try {
-    const bs58Mod = require('bs58');
-    const decode = bs58Mod.default?.decode ?? bs58Mod.decode;
+    const decode = bs58.decode;
     const buf: Buffer = Buffer.from(decode(dataBase58));
     if (buf.length === 0) return null;
     const tag = buf[0];
@@ -1434,7 +1424,7 @@ export async function analyze(signature: string, network: 'mainnet' | 'devnet') 
   );
 
   const parsedLogSummary = parseLogsFromBundle(rawBundle.logMessages);
-  const cuProfile = profileCU(rawBundle.logMessages);
+  const cuProfile = profileCU(rawBundle.logMessages, rawBundle.computeUnitsConsumed);
   const rawTrace = buildCPITree(rawBundle.logMessages);
   const cpiTree = toCPITree(rawTrace);
   // Richer trace, with per-node logs and return data, used by the new
@@ -1595,149 +1585,4 @@ function cpuConsumedTotal(cpi: CPITree): number {
   };
   walk(cpi.root);
   return total;
-}
-
-// ───────────────────────────────────────────────────────────────────────────
-// HTTP server
-// ───────────────────────────────────────────────────────────────────────────
-
-const MIME: Record<string, string> = {
-  '.html': 'text/html; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.js': 'application/javascript; charset=utf-8',
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
-  '.ico': 'image/x-icon',
-};
-
-function send(
-  res: http.ServerResponse,
-  status: number,
-  body: string | Buffer,
-  headers: Record<string, string> = {}
-) {
-  res.writeHead(status, {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    ...headers,
-  });
-  res.end(body);
-}
-
-async function serveStatic(req: http.IncomingMessage, res: http.ServerResponse, urlPath: string) {
-  const safe = urlPath.replace(/\.\.+/g, '').replace(/^\/+/, '');
-  const file = safe === '' ? 'landing.html' : safe;
-  const full = path.join(WEB_DIR, file);
-
-  try {
-    const data = await fs.readFile(full);
-    const ext = path.extname(full).toLowerCase();
-    send(res, 200, data, { 'Content-Type': MIME[ext] ?? 'application/octet-stream' });
-  } catch {
-    send(res, 404, `not found: ${file}`, { 'Content-Type': 'text/plain' });
-  }
-}
-
-const server = http.createServer(async (req, res) => {
-  if (!req.url) return send(res, 400, 'bad request');
-
-  if (req.method === 'OPTIONS') return send(res, 204, '');
-
-  const url = new URL(req.url, `http://${req.headers.host}`);
-
-  // health check
-  if (url.pathname === '/api/health') {
-    return send(res, 200, JSON.stringify({ ok: true, version: '0.1.0' }), {
-      'Content-Type': 'application/json',
-    });
-  }
-
-  // latest-tx — returns the most recent confirmed signature for a high-traffic
-  // mainnet program (Jupiter v6). Lets the demo's "live mainnet sample" button
-  // pull a fresh, real transaction on every click instead of using a stale one.
-  if (url.pathname === '/api/latest-tx') {
-    try {
-      const result = await getLatestTx();
-      return send(res, 200, JSON.stringify(result), {
-        'Content-Type': 'application/json',
-      });
-    } catch (e: any) {
-      console.error('[latest-tx] error:', e?.message ?? e);
-      return send(res, 500, JSON.stringify({ error: e?.message ?? String(e) }), {
-        'Content-Type': 'application/json',
-      });
-    }
-  }
-
-  // analyze endpoint — accepts GET ?signature=...&network=... or POST {signature, network}
-  if (url.pathname === '/api/analyze') {
-    let signature = url.searchParams.get('signature') ?? '';
-    let network = (url.searchParams.get('network') ?? 'mainnet') as 'mainnet' | 'devnet';
-
-    if (req.method === 'POST') {
-      const body = await new Promise<string>((resolve) => {
-        let buf = '';
-        req.on('data', (c) => (buf += c));
-        req.on('end', () => resolve(buf));
-      });
-      try {
-        const parsed = JSON.parse(body);
-        signature = parsed.signature ?? signature;
-        network = parsed.network ?? network;
-      } catch {
-        return send(res, 400, JSON.stringify({ error: 'invalid JSON body' }), {
-          'Content-Type': 'application/json',
-        });
-      }
-    }
-
-    if (!signature || ![87, 88].includes(signature.length)) {
-      return send(res, 400, JSON.stringify({ error: 'invalid signature' }), {
-        'Content-Type': 'application/json',
-      });
-    }
-    if (network !== 'mainnet' && network !== 'devnet') {
-      return send(res, 400, JSON.stringify({ error: 'invalid network' }), {
-        'Content-Type': 'application/json',
-      });
-    }
-
-    try {
-      const t0 = Date.now();
-      const result = await analyze(signature, network);
-      const tookMs = Date.now() - t0;
-      console.log(`[analyze] ${signature.slice(0, 8)}…  ${tookMs}ms`);
-      return send(res, 200, JSON.stringify({ ...result, tookMs }), {
-        'Content-Type': 'application/json',
-      });
-    } catch (e: any) {
-      console.error('[analyze] error:', e?.message ?? e);
-      return send(res, 500, JSON.stringify({ error: e?.message ?? String(e) }), {
-        'Content-Type': 'application/json',
-      });
-    }
-  }
-
-  // static files
-  if (req.method === 'GET') {
-    return serveStatic(req, res, url.pathname);
-  }
-
-  send(res, 405, 'method not allowed');
-});
-
-// Only start the long-running HTTP server when this file is executed directly
-// (`tsx web/server.ts` for local dev). When the file is imported as a module
-// — e.g. by api/*.ts on Vercel pulling in the exported analyze/getLatestTx —
-// we skip listen() so no port binding happens in serverless contexts.
-const isMainModule = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
-if (isMainModule) {
-  server.listen(PORT, () => {
-    console.log(`\n  open dev server`);
-    console.log(`  → http://localhost:${PORT}/landing.html`);
-    console.log(`  → http://localhost:${PORT}/web.html`);
-    console.log(`  → POST /api/analyze  { signature, network }`);
-    console.log(`  → GET  /api/latest-tx  (latest mainnet Jupiter v6 sig)\n`);
-  });
 }
