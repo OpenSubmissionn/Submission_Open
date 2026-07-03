@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { analyze } from '@/lib/server/analyze';
+import { redactSecrets } from '@/lib/server/redact';
 
 // The analysis pipeline pulls in @solana/web3.js + anchor and can take a few
 // seconds, so pin to the Node.js runtime (not Edge) with a longer budget —
@@ -26,7 +27,9 @@ async function run(signature: string, network: string) {
     console.log(`[analyze] ${sig.slice(0, 8)}…  ${tookMs}ms`);
     return NextResponse.json({ ...result, tookMs });
   } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
+    // Redact the Helius api-key (embedded in the RPC URL) before it reaches the
+    // client or the logs — a failing RPC call would otherwise leak the key.
+    const message = redactSecrets(e instanceof Error ? e.message : String(e));
     console.error('[analyze] error:', message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
