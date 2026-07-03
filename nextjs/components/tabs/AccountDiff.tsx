@@ -1,7 +1,7 @@
 'use client';
 
 import type { AccountDiff as AccountDiffData } from '@/lib/types';
-import { cn, formatSignedNumber, formatSignedSol, lamportsToSol, tokenLabel, truncateAddress } from '@/lib/utils';
+import { cn, formatSignedNumber, formatSignedSol, tokenLabel, truncateAddress } from '@/lib/utils';
 
 interface AccountDiffProps {
   accountDiffs: AccountDiffData[];
@@ -13,10 +13,39 @@ const ROLE_LABELS: Record<AccountDiffData['role'], string> = {
   readonly: 'Somente leitura',
 };
 
-function deltaColor(value: number): string {
-  if (value > 0) return 'text-green';
-  if (value < 0) return 'text-red';
-  return 'text-fg-mute';
+interface DiffCells {
+  before: string;
+  after: string;
+  deltaClass: 'delta-pos' | 'delta-neg' | 'delta-eq';
+  arrow: '↑' | '↓' | '';
+}
+
+// Collapse an account's balance changes into a single before/after pair, the
+// same way the deployed reference does: SOL delta takes priority, then the
+// first token delta, otherwise the account is unchanged.
+function diffCells(account: AccountDiffData): DiffCells {
+  if (account.solDelta !== 0) {
+    const positive = account.solDelta > 0;
+    return {
+      before: '0 (relativo)',
+      after: formatSignedSol(account.solDelta),
+      deltaClass: positive ? 'delta-pos' : 'delta-neg',
+      arrow: positive ? '↑' : '↓',
+    };
+  }
+
+  const token = account.tokenDeltas[0];
+  if (token) {
+    const positive = token.uiDelta > 0;
+    return {
+      before: '0 (relativo)',
+      after: `${formatSignedNumber(token.uiDelta)} ${tokenLabel(token.mint, token.symbol)}`,
+      deltaClass: positive ? 'delta-pos' : 'delta-neg',
+      arrow: positive ? '↑' : '↓',
+    };
+  }
+
+  return { before: 'Sem alteração', after: 'Sem alteração', deltaClass: 'delta-eq', arrow: '' };
 }
 
 export function AccountDiff({ accountDiffs }: AccountDiffProps): React.JSX.Element {
@@ -31,50 +60,34 @@ export function AccountDiff({ accountDiffs }: AccountDiffProps): React.JSX.Eleme
   const rows = accountDiffs.slice(0, 12);
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-sm">
-        <caption className="sr-only">Variação de saldo por conta</caption>
-        <thead>
-          <tr className="border-b border-white/10 text-left text-xs uppercase tracking-wide text-fg-mute">
-            <th scope="col" className="py-2 pr-3 font-medium">Conta</th>
-            <th scope="col" className="py-2 pr-3 font-medium">Papel</th>
-            <th scope="col" className="py-2 pr-3 text-right font-medium">Variação SOL</th>
-            <th scope="col" className="py-2 text-right font-medium">Variação de tokens</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((account) => {
-            const sol = lamportsToSol(account.solDelta);
-            return (
-              <tr key={account.pubkey} className="border-b border-white/5 align-top">
-                <td className="py-2.5 pr-3">
-                  <span className="mono text-fg">{truncateAddress(account.pubkey, 6, 6)}</span>
-                </td>
-                <td className="py-2.5 pr-3 text-fg-dim">{ROLE_LABELS[account.role]}</td>
-                <td className={cn('tnum py-2.5 pr-3 text-right font-medium', deltaColor(account.solDelta))}>
-                  {account.solDelta === 0 ? '—' : formatSignedSol(account.solDelta)}
-                </td>
-                <td className="py-2.5 text-right">
-                  {account.tokenDeltas.length === 0 ? (
-                    <span className="text-fg-mute">—</span>
-                  ) : (
-                    <div className="flex flex-col items-end gap-1">
-                      {account.tokenDeltas.map((token) => (
-                        <span
-                          key={`${account.pubkey}-${token.mint}`}
-                          className={cn('tnum font-medium', deltaColor(token.uiDelta))}
-                        >
-                          {formatSignedNumber(token.uiDelta)} {tokenLabel(token.mint, token.symbol)}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+    <div>
+      <div className="diff-header" aria-hidden="true">
+        <span>Conta</span>
+        <span>Antes</span>
+        <span>Depois</span>
+      </div>
+      <ul className="diff-rows">
+        {rows.map((account) => {
+          const { before, after, deltaClass, arrow } = diffCells(account);
+          return (
+            <li key={account.pubkey} className="diff-row">
+              <div className="diff-acct">
+                <div className="name">{ROLE_LABELS[account.role]}</div>
+                <div className="addr">{truncateAddress(account.pubkey, 6, 4)}</div>
+              </div>
+              <div className="diff-value">{before}</div>
+              <div className={cn('diff-value', deltaClass)}>
+                {after}
+                {arrow ? (
+                  <span className="arrow" aria-hidden="true">
+                    {arrow}
+                  </span>
+                ) : null}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
       {accountDiffs.length > rows.length ? (
         <p className="mt-3 text-xs text-fg-mute">
           Mostrando as {rows.length} contas com maior variação de {accountDiffs.length} no total.

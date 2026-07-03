@@ -182,7 +182,11 @@ export default function AnalyzePage(): React.JSX.Element {
                   {activeTab === 'diff' ? <AccountDiff accountDiffs={data.accountDiffs} /> : null}
                   {activeTab === 'model' ? <AccountModel accountModel={data.accountModel} /> : null}
                   {activeTab === 'explanation' ? (
-                    <Explanation instructions={data.instructions} executionTrace={data.executionTrace} />
+                    <Explanation
+                      instructions={data.instructions}
+                      executionTrace={data.executionTrace}
+                      flow={data.flow}
+                    />
                   ) : null}
                   {activeTab === 'learn' ? <Learn learn={data.learn} /> : null}
                 </section>

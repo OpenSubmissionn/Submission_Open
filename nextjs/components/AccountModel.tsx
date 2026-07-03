@@ -1,18 +1,12 @@
 'use client';
 
-import type { AccountModel as AccountModelData, ModelNode } from '@/lib/types';
-import { truncateAddress } from '@/lib/utils';
+import { useState } from 'react';
+import type { AccountModel as AccountModelData, ModelEdge, ModelNode } from '@/lib/types';
+import { cn } from '@/lib/utils';
 
 interface AccountModelProps {
   accountModel: AccountModelData;
 }
-
-const NODE_COLORS: Record<ModelNode['type'], { bg: string; border: string; text: string }> = {
-  signer: { bg: '#1e3a5f', border: '#3b82f6', text: '#93c5fd' },
-  program: { bg: '#1e3a2a', border: '#22c55e', text: '#86efac' },
-  pda: { bg: '#3b2a1e', border: '#f97316', text: '#fdba74' },
-  account: { bg: '#2a1e3b', border: '#a855f7', text: '#d8b4fe' },
-};
 
 const TYPE_LABEL: Record<ModelNode['type'], string> = {
   signer: 'Signer',
@@ -21,10 +15,14 @@ const TYPE_LABEL: Record<ModelNode['type'], string> = {
   account: 'Account',
 };
 
-const PADDING = 32;
+// Legend order mirrors the deployed reference.
+const LEGEND: ModelNode['type'][] = ['program', 'pda', 'signer', 'account'];
+
+const MARGIN = 20;
 
 export function AccountModel({ accountModel }: AccountModelProps): React.JSX.Element {
   const { nodes, edges } = accountModel;
+  const [selected, setSelected] = useState<string | null>(null);
 
   if (nodes.length === 0) {
     return (
@@ -34,186 +32,190 @@ export function AccountModel({ accountModel }: AccountModelProps): React.JSX.Ele
     );
   }
 
-  // Compute viewport from pre-laid-out coordinates
-  const maxX = Math.max(...nodes.map((n) => n.x + n.w), 1);
-  const maxY = Math.max(...nodes.map((n) => n.y + n.h), 1);
-  const viewW = maxX + PADDING * 2;
-  const viewH = maxY + PADDING * 2;
+  const nodeMap = new Map<string, ModelNode>(nodes.map((node) => [node.id, node]));
+  const viewW = Math.max(...nodes.map((node) => node.x + node.w), 1) + MARGIN;
+  const viewH = Math.max(...nodes.map((node) => node.y + node.h), 1) + MARGIN;
 
-  // Build a map from node id to node for edge rendering
-  const nodeMap = new Map<string, ModelNode>(nodes.map((n) => [n.id, n]));
+  const isNeighbor = (id: string, sel: string): boolean =>
+    edges.some(
+      (edge) => (edge.from === sel && edge.to === id) || (edge.from === id && edge.to === sel),
+    );
 
-  // Center of a node
-  const cx = (n: ModelNode) => PADDING + n.x + n.w / 2;
-  const cy = (n: ModelNode) => PADDING + n.y + n.h / 2;
+  const selectedNode = selected ? (nodeMap.get(selected) ?? null) : null;
 
   return (
-    <div className="flex flex-col gap-4">
-      {/* Legend */}
-      <div className="flex flex-wrap gap-3">
-        {(Object.keys(NODE_COLORS) as ModelNode['type'][]).map((type) => {
-          const c = NODE_COLORS[type];
-          return (
-            <span
-              key={type}
-              className="flex items-center gap-1.5 rounded px-2 py-1 text-xs font-medium"
-              style={{ background: c.bg, color: c.text, border: `1px solid ${c.border}` }}
-            >
-              {TYPE_LABEL[type]}
-            </span>
-          );
-        })}
-        <span className="ml-auto text-xs text-fg-mute">
-          {nodes.length} nós · {edges.length} conexões
-        </span>
-      </div>
-
-      {/* SVG canvas */}
-      <div className="glass-soft overflow-x-auto rounded-lg p-0">
-        <svg
-          viewBox={`0 0 ${viewW} ${viewH}`}
-          width="100%"
-          style={{ minWidth: Math.min(viewW, 320), maxHeight: 480 }}
-          aria-label="Account model graph"
+    <>
+      <div className="model-wrap">
+        <div
+          className="model-canvas"
+          onClick={() => setSelected(null)}
+          role="presentation"
         >
-          <defs>
-            <marker
-              id="arrow"
-              viewBox="0 0 10 10"
-              refX="10"
-              refY="5"
-              markerWidth="6"
-              markerHeight="6"
-              orient="auto-start-reverse"
-            >
-              <path d="M 0 0 L 10 5 L 0 10 z" fill="#4b5563" />
-            </marker>
-          </defs>
-
-          {/* Edges */}
-          {edges.map((edge, i) => {
-            const from = nodeMap.get(edge.from);
-            const to = nodeMap.get(edge.to);
-            if (!from || !to) return null;
-            const x1 = cx(from);
-            const y1 = cy(from);
-            const x2 = cx(to);
-            const y2 = cy(to);
-            const midX = (x1 + x2) / 2;
-            const midY = (y1 + y2) / 2;
-            return (
-              <g key={i}>
-                <line
-                  x1={x1}
-                  y1={y1}
-                  x2={x2}
-                  y2={y2}
-                  stroke="#4b5563"
-                  strokeWidth={1.5}
-                  markerEnd="url(#arrow)"
+          <svg
+            className="model-svg"
+            viewBox={`0 0 ${viewW} ${viewH}`}
+            preserveAspectRatio="xMidYMid meet"
+            role="group"
+            aria-label={`Grafo do modelo de contas: ${nodes.length} nós, ${edges.length} conexões`}
+          >
+            <g>
+              {edges.map((edge, index) => (
+                <Edge
+                  key={`${edge.from}->${edge.to}-${index}`}
+                  edge={edge}
+                  from={nodeMap.get(edge.from)}
+                  to={nodeMap.get(edge.to)}
+                  selected={selected}
                 />
-                {edge.label && (
-                  <text
-                    x={midX}
-                    y={midY - 4}
-                    textAnchor="middle"
-                    fontSize={9}
-                    fill="#9ca3af"
-                  >
-                    {edge.label}
-                  </text>
-                )}
-              </g>
-            );
-          })}
+              ))}
+            </g>
+            <g>
+              {nodes.map((node) => {
+                const dim = selected !== null && node.id !== selected && !isNeighbor(node.id, selected);
+                return (
+                  <Node
+                    key={node.id}
+                    node={node}
+                    active={node.id === selected}
+                    dim={dim}
+                    onSelect={(id) => setSelected(id)}
+                    onClear={() => setSelected(null)}
+                  />
+                );
+              })}
+            </g>
+          </svg>
 
-          {/* Nodes */}
-          {nodes.map((node) => {
-            const c = NODE_COLORS[node.type];
-            const x = PADDING + node.x;
-            const y = PADDING + node.y;
-            const r = 6;
-            return (
-              <g key={node.id}>
-                <rect
-                  x={x}
-                  y={y}
-                  width={node.w}
-                  height={node.h}
-                  rx={r}
-                  ry={r}
-                  fill={c.bg}
-                  stroke={c.border}
-                  strokeWidth={1.5}
-                />
-                {/* Type badge */}
-                <text
-                  x={x + 8}
-                  y={y + 14}
-                  fontSize={8}
-                  fontWeight="600"
-                  fill={c.text}
-                  letterSpacing="0.05em"
-                >
-                  {TYPE_LABEL[node.type].toUpperCase()}
-                </text>
-                {/* Label */}
-                <text
-                  x={x + node.w / 2}
-                  y={y + node.h / 2 + 1}
-                  textAnchor="middle"
-                  dominantBaseline="middle"
-                  fontSize={10}
-                  fontWeight="500"
-                  fill="#f3f4f6"
-                >
-                  {node.label || truncateAddress(node.address)}
-                </text>
-                {/* Address */}
-                <text
-                  x={x + node.w / 2}
-                  y={y + node.h - 10}
-                  textAnchor="middle"
-                  fontSize={8}
-                  fill="#6b7280"
-                >
-                  {truncateAddress(node.address)}
-                </text>
-                {/* Tooltip via title */}
-                <title>
-                  {`${node.label || node.address}\nTipo: ${TYPE_LABEL[node.type]}\nOwner: ${node.owner}\n${node.description}`}
-                </title>
-              </g>
-            );
-          })}
-        </svg>
+          <div className="model-legend" aria-hidden="true">
+            {LEGEND.map((type) => (
+              <span key={type} className="item">
+                <span className={cn('swatch', type)} />
+                {TYPE_LABEL[type]}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <aside className={cn('model-detail', !selectedNode && 'empty')} aria-live="polite">
+          {selectedNode ? (
+            <>
+              <div className="head">
+                <h4>{selectedNode.label}</h4>
+              </div>
+              <div className="row">
+                <span className="k">Tipo</span>
+                <span className="v">{TYPE_LABEL[selectedNode.type]}</span>
+              </div>
+              <div className="row">
+                <span className="k">Endereço</span>
+                <span className="v">{selectedNode.address}</span>
+              </div>
+              <div className="row">
+                <span className="k">Dono</span>
+                <span className="v">{selectedNode.owner}</span>
+              </div>
+              {selectedNode.description ? <div className="desc">{selectedNode.description}</div> : null}
+            </>
+          ) : (
+            <div className="body">
+              Clique em um nó no grafo para inspecionar seu tipo, dono, endereço e papel na transação.
+            </div>
+          )}
+        </aside>
       </div>
 
-      {/* Node list as accessible fallback */}
-      <details className="glass-soft rounded-lg p-3">
-        <summary className="cursor-pointer text-xs font-medium text-fg-mute hover:text-fg">
-          Lista de contas ({nodes.length})
-        </summary>
-        <ul className="mt-3 flex flex-col gap-2">
-          {nodes.map((node) => {
-            const c = NODE_COLORS[node.type];
-            return (
-              <li key={node.id} className="flex items-start gap-2 text-xs">
-                <span
-                  className="mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold"
-                  style={{ background: c.bg, color: c.text, border: `1px solid ${c.border}` }}
-                >
-                  {TYPE_LABEL[node.type]}
-                </span>
-                <span className="text-fg">{node.label || truncateAddress(node.address)}</span>
-                {node.description && (
-                  <span className="text-fg-mute">&mdash; {node.description}</span>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      </details>
-    </div>
+      {/* Text alternative for screen readers, since the SVG graph is visual. */}
+      <ul className="sr-only">
+        {nodes.map((node) => (
+          <li key={node.id}>
+            {TYPE_LABEL[node.type]}: {node.label} ({node.address}).{' '}
+            {node.description}
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
+function Edge({
+  edge,
+  from,
+  to,
+  selected,
+}: {
+  edge: ModelEdge;
+  from: ModelNode | undefined;
+  to: ModelNode | undefined;
+  selected: string | null;
+}): React.JSX.Element | null {
+  if (!from || !to) return null;
+
+  const x1 = from.x + from.w;
+  const y1 = from.y + from.h / 2;
+  const x2 = to.x;
+  const y2 = to.y + to.h / 2;
+  const midX = (x1 + x2) / 2;
+
+  const incident = edge.from === selected || edge.to === selected;
+  const active = selected !== null && incident;
+  const dim = selected !== null && !incident;
+
+  return (
+    <g>
+      <path
+        d={`M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`}
+        className={cn('model-edge', active && 'active', dim && 'dim')}
+      />
+      {edge.label ? (
+        <text x={midX} y={(y1 + y2) / 2 - 4} className="model-edge-label">
+          {edge.label}
+        </text>
+      ) : null}
+    </g>
+  );
+}
+
+function Node({
+  node,
+  active,
+  dim,
+  onSelect,
+  onClear,
+}: {
+  node: ModelNode;
+  active: boolean;
+  dim: boolean;
+  onSelect: (id: string) => void;
+  onClear: () => void;
+}): React.JSX.Element {
+  const maxChars = Math.max(8, Math.floor((node.w - 16) / 7));
+  const label = node.label.length > maxChars ? `${node.label.slice(0, maxChars - 1)}…` : node.label;
+
+  return (
+    <g
+      className={cn('model-node', node.type, active && 'selected', dim && 'dim')}
+      role="button"
+      tabIndex={0}
+      aria-pressed={active}
+      aria-label={`${TYPE_LABEL[node.type]}: ${node.label}, ${node.address}`}
+      onClick={(event) => {
+        event.stopPropagation();
+        onSelect(node.id);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onSelect(node.id);
+        } else if (event.key === 'Escape') {
+          onClear();
+        }
+      }}
+    >
+      <title>{node.label}</title>
+      <rect x={node.x} y={node.y} width={node.w} height={node.h} rx={14} />
+      <text x={node.x + node.w / 2} y={node.y + node.h / 2 + 4}>
+        {label}
+      </text>
+    </g>
   );
 }
