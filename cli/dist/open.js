@@ -27385,6 +27385,18 @@ function computeAccountDiffs(bundle) {
   const totalAccounts = Math.max(accountKeys.length, preBalances.length, postBalances.length);
   const header = getHeaderFromTransaction(bundle.transaction);
   const tokenDeltaByAccount = getTokenDeltas(bundle);
+  const loaded = bundle.loadedAddresses;
+  const loadedWritable = new Set(loaded?.writable ?? []);
+  const loadedReadonly = new Set(loaded?.readonly ?? []);
+  const staticCount = Math.max(
+    totalAccounts - loadedWritable.size - loadedReadonly.size,
+    0
+  );
+  const roleFor = (index, pubkey) => {
+    if (loadedWritable.has(pubkey)) return "writable";
+    if (loadedReadonly.has(pubkey)) return "readonly";
+    return getAccountRole(index, staticCount, header);
+  };
   const diffs = [];
   for (let index = 0; index < totalAccounts; index += 1) {
     const preSol = preBalances[index] ?? 0;
@@ -27394,10 +27406,11 @@ function computeAccountDiffs(bundle) {
     if (solDelta === 0 && tokenDeltas.length === 0) {
       continue;
     }
+    const pubkey = accountKeys[index] ?? `unknown-account-${index}`;
     diffs.push({
       _index: index,
-      pubkey: accountKeys[index] ?? `unknown-account-${index}`,
-      role: getAccountRole(index, totalAccounts, header),
+      pubkey,
+      role: roleFor(index, pubkey),
       solDelta,
       tokenDeltas
     });
@@ -27495,7 +27508,6 @@ function buildCPITree(logMessages) {
       const consumed = parseInt(cuMatch[2], 10);
       if (matchedNode.computeUnitsConsumed === void 0) {
         matchedNode.computeUnitsConsumed = consumed;
-        trace.totalComputeUnits += consumed;
       }
       continue;
     }
@@ -27526,6 +27538,10 @@ function buildCPITree(logMessages) {
     trace.isTruncated = true;
     while (stack.length > 0) markTruncated(stack.pop());
   }
+  trace.totalComputeUnits = trace.roots.reduce(
+    (sum, root) => sum + (root.computeUnitsConsumed ?? 0),
+    0
+  );
   return trace;
 }
 
@@ -27656,6 +27672,12 @@ var IdlCache = class {
   set(programId, idl, version2 = "unknown") {
     if (this.noCache) return;
     try {
+      const serializedIdl = JSON.stringify(idl);
+      const MAX_IDL_BYTES = 512 * 1024;
+      if (serializedIdl.length > MAX_IDL_BYTES) {
+        verboseLog(this.verbose, `skip oversized ${programId} (${serializedIdl.length} bytes)`);
+        return;
+      }
       this.ensureCacheDirSync();
       const entry = {
         idl,
@@ -28153,8 +28175,8 @@ function parseLogsFromBundle(logMessages, verbose = false) {
 }
 
 // ../services/src/analysis/cuProfiler.ts
-function profileCU(logMessages) {
-  let totalConsumed = 0;
+function profileCU(logMessages, metaCUConsumed) {
+  let totalConsumedFromLogs = 0;
   let totalLimit = 0;
   const perInstruction = [];
   let bottleneck = null;
@@ -28164,7 +28186,7 @@ function profileCU(logMessages) {
     if (match) {
       const consumed = parseInt(match[1], 10);
       const limit = parseInt(match[2], 10);
-      totalConsumed += consumed;
+      totalConsumedFromLogs += consumed;
       totalLimit += limit;
       const currentEntry = {
         cuConsumed: consumed,
@@ -28180,6 +28202,7 @@ function profileCU(logMessages) {
       }
     }
   }
+  const totalConsumed = typeof metaCUConsumed === "number" && metaCUConsumed > 0 ? metaCUConsumed : totalConsumedFromLogs;
   const utilizationPercent = totalLimit > 0 ? totalConsumed / totalLimit * 100 : 0;
   return {
     totalConsumed,
@@ -28459,6 +28482,10 @@ function detectAnomalies(bundle, transfers) {
       });
     }
   } catch (err2) {
+    console.warn(
+      "[anomalyDetector] unexpected error during detection:",
+      err2 instanceof Error ? err2.message : String(err2)
+    );
   }
   const hasHighSeverity = anomalies.some((a) => a.severity === "high");
   const summary = anomalies.length === 0 ? "No anomalies detected" : anomalies.length === 1 ? "1 anomaly detected" : `${anomalies.length} anomalies detected`;
@@ -28902,6 +28929,20 @@ var DEFAULT_TIMEOUT_MS = 9e4;
 var BASE64_LINE_REGEX = /^[A-Za-z0-9+/]+={0,2}$/;
 var MIN_BASE64_LEN = 100;
 var STDERR_TAIL_LINES = 20;
+var SECRET_ENV_NAMES = /* @__PURE__ */ new Set(["HELIUS_RPC_URL", "MCP_ENDPOINT_URL"]);
+var SECRET_ENV_PATTERN = /(API[_-]?KEY|APIKEY|SECRET|TOKEN|PASSWORD|CREDENTIAL|PRIVATE[_-]?KEY|ACCESS[_-]?KEY|SESSION|MNEMONIC|SEED)/i;
+function buildChildEnv(extra) {
+  const out = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value === void 0) continue;
+    if (SECRET_ENV_PATTERN.test(key) || SECRET_ENV_NAMES.has(key)) continue;
+    out[key] = value;
+  }
+  if (extra) {
+    for (const [key, value] of Object.entries(extra)) out[key] = value;
+  }
+  return out;
+}
 function detectSourceKind(input) {
   if (!fs3.existsSync(input)) return null;
   const stat = fs3.statSync(input);
@@ -28998,7 +29039,7 @@ async function runSourceFile(rawInput, options = {}) {
   return new Promise((resolve5, reject) => {
     const child = (0, import_child_process.spawn)(spawnTarget, spawnArgs, {
       cwd,
-      env: { ...process.env, ...options.env },
+      env: buildChildEnv(options.env),
       stdio: ["ignore", "pipe", "pipe"],
       shell: isWindows,
       windowsHide: true

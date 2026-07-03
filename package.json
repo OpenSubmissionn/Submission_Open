@@ -8,7 +8,6 @@
   },
   "scripts": {
     "cli": "tsx cli/bin/open.ts",
-    "web": "tsx web/server.ts",
     "link": "npm run build && npm link",
     "dev": "npm run dev -w cli",
     "build": "npm run build --workspaces",
@@ -30,11 +29,12 @@
   },
   "keywords": [],
   "author": "Nicole",
-  "license": "ISC",
+  "license": "MIT",
   "workspaces": [
     "cli",
     "services",
-    "scripts"
+    "scripts",
+    "nextjs"
   ],
   "devDependencies": {
     "@types/node": "^25.6.0",
@@ -53,14 +53,15 @@
   "dependencies": {
     "chalk": "^5.6.2",
     "cli-table3": "^0.6.5",
-    "ink": "^3.2.0",
-    "react": "^17.0.2",
-    "react-dom": "^17.0.2",
-    "yoga-layout": "^2.0.0"
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "overrides": {
     "rpc-websockets": {
       "uuid": "^10.0.0"
+    },
+    "styled-jsx": {
+      "react": "19.2.7"
     }
   }
 }

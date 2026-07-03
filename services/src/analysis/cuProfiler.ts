@@ -12,9 +12,15 @@
 
 import { CUProfile, CUEntry } from './types.js';
 
-export function profileCU(logMessages: string[]): CUProfile {
+/**
+ * @param metaCUConsumed - Canonical CU value from `tx.meta.computeUnitsConsumed` (RPC).
+ *   When provided and positive, it overrides the log-summed total so the returned
+ *   `totalConsumed` matches what explorers like Solscan show. The per-instruction
+ *   breakdown still comes from log parsing (only source available for that granularity).
+ */
+export function profileCU(logMessages: string[], metaCUConsumed?: number | null): CUProfile {
   // Running totals for transaction-level CU metrics.
-  let totalConsumed = 0;
+  let totalConsumedFromLogs = 0;
   let totalLimit = 0;
 
   // Captures each parsed CU entry from the logs.
@@ -32,7 +38,7 @@ export function profileCU(logMessages: string[]): CUProfile {
       const consumed = parseInt(match[1], 10);
       const limit = parseInt(match[2], 10);
 
-      totalConsumed += consumed;
+      totalConsumedFromLogs += consumed;
       totalLimit += limit;
 
       // Program metadata is not extracted in this step yet.
@@ -51,6 +57,13 @@ export function profileCU(logMessages: string[]): CUProfile {
       }
     }
   }
+
+  // Prefer the canonical RPC value when available — it captures costs that
+  // don't appear in logs (e.g. Compute Budget program overhead).
+  const totalConsumed =
+    typeof metaCUConsumed === 'number' && metaCUConsumed > 0
+      ? metaCUConsumed
+      : totalConsumedFromLogs;
 
   // Prevent divide-by-zero when no CU logs are present.
   const utilizationPercent = totalLimit > 0 ? (totalConsumed / totalLimit) * 100 : 0;

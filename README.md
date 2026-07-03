@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="web/open-wordmark.svg" alt="OPEN" width="220" />
+  <img src="nextjs/public/open-wordmark.svg" alt="OPEN" width="220" />
   <h3>Chrome DevTools for Solana.</h3>
   <p>Turn any transaction signature into a fully decoded execution profile — compute units, CPI call tree, account diffs, and AI-augmented insights.</p>
 
@@ -36,7 +36,7 @@ Works on mainnet and devnet · Plug your own RPC · `--json` and `--csv` ready f
 
 ## Try it
 
-Paste a signature into the [web app](https://opendev-tx-solana.vercel.app) — no install required.
+Paste a signature into the [web app](https://opendev-kappa.vercel.app) — no install required.
 
 Or use the CLI:
 

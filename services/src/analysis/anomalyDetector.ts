@@ -105,7 +105,12 @@ export function detectAnomalies(
       });
     }
   } catch (err) {
-    // Silently catch errors and return what we've detected so far
+    // Log but don't rethrow — partial results are better than none.
+    // A silent catch here hid bugs in Rule 1 when `uiAmount` was NaN/undefined.
+    console.warn(
+      '[anomalyDetector] unexpected error during detection:',
+      err instanceof Error ? err.message : String(err)
+    );
   }
 
   const hasHighSeverity = anomalies.some((a) => a.severity === 'high');

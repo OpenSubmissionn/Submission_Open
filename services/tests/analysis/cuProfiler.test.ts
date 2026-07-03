@@ -4,6 +4,12 @@ import cuNormalLogs from '../fixtures/cu-profiler-normal.json';
 import cuBottleneckLogs from '../fixtures/cu-profiler-bottleneck.json';
 import cuMultipleInstructionsLogs from '../fixtures/cu-profiler-multiple-instructions.json';
 
+// Logs that would sum to 4800 CU across 2 instructions
+const SAMPLE_LOGS = [
+  'Program AAA consumed 3000 of 200000 compute units',
+  'Program BBB consumed 1800 of 200000 compute units',
+];
+
 describe('CU Profiler', () => {
   it('should correctly profile CU for normal consumption', () => {
     const profile = profileCU(cuNormalLogs);
@@ -44,5 +50,32 @@ describe('CU Profiler', () => {
     expect(profile.utilizationPercent).toBe(0);
     expect(profile.perInstruction.length).toBe(0);
     expect(profile.bottleneck?.cuConsumed).toBe(0);
+  });
+
+  describe('metaCUConsumed override (P0.1)', () => {
+    it('uses metaCUConsumed when positive, overriding log sum', () => {
+      // logs sum to 4800, but RPC says 5000 (runtime overhead not in logs)
+      const profile = profileCU(SAMPLE_LOGS, 5000);
+      expect(profile.totalConsumed).toBe(5000);
+      // per-instruction breakdown still comes from logs
+      expect(profile.perInstruction.length).toBe(2);
+    });
+
+    it('falls back to log sum when metaCUConsumed is null', () => {
+      const profile = profileCU(SAMPLE_LOGS, null);
+      expect(profile.totalConsumed).toBe(4800);
+    });
+
+    it('falls back to log sum when metaCUConsumed is 0', () => {
+      // 0 is not a useful canonical value — treat same as absent
+      const profile = profileCU(SAMPLE_LOGS, 0);
+      expect(profile.totalConsumed).toBe(4800);
+    });
+
+    it('falls back to 0 when both logs and metaCUConsumed are absent', () => {
+      const profile = profileCU([], null);
+      expect(profile.totalConsumed).toBe(0);
+      expect(profile.utilizationPercent).toBe(0);
+    });
   });
 });

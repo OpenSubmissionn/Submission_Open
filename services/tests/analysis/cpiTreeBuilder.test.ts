@@ -23,7 +23,9 @@ describe('CPI Tree Builder', () => {
 
     const trace = buildCPITree(massiveLogs);
 
-    expect(trace.totalComputeUnits).toBe(6500);
+    // Root 1111 reports 5000 CU; that value already includes its CPI subtree
+    // (children 2222/4444). Summing all nodes would double-count → 6500 (Jelleo F01).
+    expect(trace.totalComputeUnits).toBe(5000);
     expect(trace.isTruncated).toBe(false);
     expect(trace.roots.length).toBe(1);
 
@@ -91,7 +93,8 @@ describe('CPI Tree Builder', () => {
     const trace = buildCPITree(repeatedDepthLogs);
 
     expect(trace.isTruncated).toBe(true);
-    expect(trace.totalComputeUnits).toBe(620);
+    // Root consumed 500; ChildB's 120 CU is already included in the root's reported total.
+    expect(trace.totalComputeUnits).toBe(500);
     expect(trace.roots).toHaveLength(1);
 
     const root = trace.roots[0];
@@ -122,7 +125,9 @@ describe('CPI Tree Builder', () => {
     const trace = buildCPITree(deepLogs);
 
     expect(trace.isTruncated).toBe(false);
-    expect(trace.totalComputeUnits).toBe(340);
+    // Root reports 100 CU; Level1/Level2/Level3 CU are already included in that total.
+    // Summing all nodes (100+90+80+70=340) would double-count nested CPIs (Jelleo F01).
+    expect(trace.totalComputeUnits).toBe(100);
     expect(trace.roots[0].children[0].children[0].children[0].programId).toBe('Level3');
     expect(trace.roots[0].status).toBe('success');
   });
@@ -142,7 +147,9 @@ describe('CPI Tree Builder', () => {
     const trace = buildCPITree(partialFailureLogs);
 
     expect(trace.isTruncated).toBe(false);
-    expect(trace.totalComputeUnits).toBe(500);
+    // Router root reports 300 CU; SwapB's 200 is already contained in that total.
+    // Summing all nodes (300+200=500) would double-count nested CPIs (Jelleo F01).
+    expect(trace.totalComputeUnits).toBe(300);
     expect(trace.roots[0].status).toBe('success');
     expect(trace.roots[0].children).toHaveLength(2);
     expect(trace.roots[0].children[0].status).toBe('failed');
