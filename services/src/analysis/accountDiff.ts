@@ -189,6 +189,24 @@ export function computeAccountDiffs(bundle: RawTransactionBundle): AccountDiff[]
   const header = getHeaderFromTransaction(bundle.transaction);
   const tokenDeltaByAccount = getTokenDeltas(bundle);
 
+  // Versioned (v0) transactions append address-lookup-table accounts AFTER the
+  // static keys, but the message header only describes the static keys. Use the
+  // RPC's authoritative meta.loadedAddresses for loaded accounts, and apply the
+  // header/index inference only across the static range (Jelleo F06).
+  const loaded = (bundle as { loadedAddresses?: { writable?: string[]; readonly?: string[] } })
+    .loadedAddresses;
+  const loadedWritable = new Set<string>(loaded?.writable ?? []);
+  const loadedReadonly = new Set<string>(loaded?.readonly ?? []);
+  const staticCount = Math.max(
+    totalAccounts - loadedWritable.size - loadedReadonly.size,
+    0
+  );
+  const roleFor = (index: number, pubkey: string): AccountDiff['role'] => {
+    if (loadedWritable.has(pubkey)) return 'writable';
+    if (loadedReadonly.has(pubkey)) return 'readonly';
+    return getAccountRole(index, staticCount, header);
+  };
+
   const diffs: Array<AccountDiff & { _index: number }> = [];
 
   for (let index = 0; index < totalAccounts; index += 1) {
@@ -202,10 +220,11 @@ export function computeAccountDiffs(bundle: RawTransactionBundle): AccountDiff[]
       continue;
     }
 
+    const pubkey = accountKeys[index] ?? `unknown-account-${index}`;
     diffs.push({
       _index: index,
-      pubkey: accountKeys[index] ?? `unknown-account-${index}`,
-      role: getAccountRole(index, totalAccounts, header),
+      pubkey,
+      role: roleFor(index, pubkey),
       solDelta,
       tokenDeltas,
     });

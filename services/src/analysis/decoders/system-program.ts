@@ -33,7 +33,7 @@ export function decodeSystemInstruction(ix: ParsedInstruction): SystemInstructio
   }
 
   try {
-    // Decode base64 data to buffer
+    // System Program data arrives as base64 from the Solana RPC.
     const buffer = Buffer.from(ix.data, 'base64');
 
     // Ensure buffer has at least 4 bytes for discriminator

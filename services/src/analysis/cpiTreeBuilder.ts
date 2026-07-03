@@ -126,7 +126,8 @@ export function buildCPITree(logMessages: string[]): ExecutionTrace {
       const consumed = parseInt(cuMatch[2], 10);
       if (matchedNode.computeUnitsConsumed === undefined) {
         matchedNode.computeUnitsConsumed = consumed;
-        trace.totalComputeUnits += consumed;
+        // Do NOT accumulate here: a parent's reported CU already includes its
+        // CPI children. The transaction total is summed from root nodes below.
       }
       continue;
     }
@@ -160,6 +161,14 @@ export function buildCPITree(logMessages: string[]): ExecutionTrace {
     trace.isTruncated = true;
     while (stack.length > 0) markTruncated(stack.pop()!);
   }
+
+  // A root program's reported CU already includes its entire CPI subtree, so
+  // the transaction total is the sum of the ROOTS' consumed CU — summing every
+  // node would double-count nested CPIs (Jelleo F01).
+  trace.totalComputeUnits = trace.roots.reduce(
+    (sum, root) => sum + (root.computeUnitsConsumed ?? 0),
+    0
+  );
 
   return trace;
 }

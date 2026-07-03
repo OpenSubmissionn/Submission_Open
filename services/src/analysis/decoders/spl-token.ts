@@ -2,6 +2,18 @@ import type { ParsedInstruction, TokenInstruction } from '../types.js';
 import { Buffer } from 'buffer';
 
 /**
+ * txParser normalises instruction data to lowercase hex, but RPC jsonParsed
+ * paths can still hand us base64. Decode hex when the string is valid even-length
+ * hex, otherwise fall back to base64 (mirrors decoders/anchor-idl.ts) — Jelleo F09.
+ */
+function decodeInstructionBytes(data: string): Buffer {
+  if (data.length % 2 === 0 && /^[0-9a-fA-F]+$/.test(data)) {
+    return Buffer.from(data, 'hex');
+  }
+  return Buffer.from(data, 'base64');
+}
+
+/**
  * Decodes SPL Token program instructions.
  * Returns null if instruction is not SPL Token related or cannot be decoded.
  */
@@ -17,8 +29,8 @@ export function decodeSPLInstruction(ix: ParsedInstruction): TokenInstruction | 
   }
 
   try {
-    // Decode base64 payload into a binary buffer.
-    const dataBuffer = Buffer.from(ix.data, 'base64');
+    // Decode the payload (hex from txParser, or base64 from jsonParsed) into bytes.
+    const dataBuffer = decodeInstructionBytes(ix.data);
 
     if (dataBuffer.length < 1) {
       return null;

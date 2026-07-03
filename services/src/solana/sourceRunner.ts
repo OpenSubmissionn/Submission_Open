@@ -28,6 +28,30 @@ const BASE64_LINE_REGEX = /^[A-Za-z0-9+/]+={0,2}$/;
 const MIN_BASE64_LEN = 100;
 const STDERR_TAIL_LINES = 20;
 
+// Names whose VALUE is a secret even though the name doesn't match the pattern.
+const SECRET_ENV_NAMES = new Set(['HELIUS_RPC_URL', 'MCP_ENDPOINT_URL']);
+// Strip anything that looks like a credential by name (Jelleo F02).
+const SECRET_ENV_PATTERN =
+  /(API[_-]?KEY|APIKEY|SECRET|TOKEN|PASSWORD|CREDENTIAL|PRIVATE[_-]?KEY|ACCESS[_-]?KEY|SESSION|MNEMONIC|SEED)/i;
+
+/**
+ * Build a scrubbed environment for untrusted user code: inherit non-secret vars
+ * only, so a `simulate` snippet cannot read the operator's stored API/RPC keys.
+ * An explicit `--inherit-env` opt-in (via options.env) can re-add what's needed.
+ */
+function buildChildEnv(extra?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = {} as NodeJS.ProcessEnv;
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value === undefined) continue;
+    if (SECRET_ENV_PATTERN.test(key) || SECRET_ENV_NAMES.has(key)) continue;
+    out[key] = value;
+  }
+  if (extra) {
+    for (const [key, value] of Object.entries(extra)) out[key] = value;
+  }
+  return out;
+}
+
 export function detectSourceKind(input: string): SourceKind | null {
   if (!fs.existsSync(input)) return null;
   const stat = fs.statSync(input);
@@ -155,7 +179,7 @@ export async function runSourceFile(
   return new Promise((resolve, reject) => {
     const child = spawn(spawnTarget, spawnArgs, {
       cwd,
-      env: { ...process.env, ...options.env },
+      env: buildChildEnv(options.env),
       stdio: ['ignore', 'pipe', 'pipe'],
       shell: isWindows,
       windowsHide: true,

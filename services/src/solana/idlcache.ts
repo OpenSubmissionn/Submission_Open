@@ -234,6 +234,15 @@ export class IdlCache {
     if (this.noCache) return;
 
     try {
+      // Reject implausibly large (attacker-controlled, possibly zlib-bomb) IDLs
+      // before touching memory/disk. Real Anchor IDLs are tens of KB (Jelleo F04).
+      const serializedIdl = JSON.stringify(idl);
+      const MAX_IDL_BYTES = 512 * 1024; // 512 KB
+      if (serializedIdl.length > MAX_IDL_BYTES) {
+        verboseLog(this.verbose, `skip oversized ${programId} (${serializedIdl.length} bytes)`);
+        return;
+      }
+
       this.ensureCacheDirSync();
       const entry: IdlCacheEntry = {
         idl,

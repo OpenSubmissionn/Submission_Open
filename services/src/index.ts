@@ -1,6 +1,7 @@
 export * from './analysis/types.js';
 export {
   getProgramName,
+  getProgramNameSync,
   getProgramInfo,
   isProgramKnown,
   getProgramsByCategory,
